@@ -1,26 +1,126 @@
-@import "tailwindcss";
+/* src/app/globals.css */
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* IBM Plex Sans Thai สำหรับทั้งเว็บ */
+body {
+  font-family: "IBM Plex Sans Thai", system-ui, -apple-system, sans-serif;
+  margin: 0;
+  padding: 0;
+  background: #00231f;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* Apply font ให้ทุก element */
+* {
+  font-family: "IBM Plex Sans Thai", system-ui, -apple-system, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Custom utilities */
+.bg-gradient-brand {
+  background: #00231f;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #eab308 0%, #facc15 100%);
+  color: #000;
+  border: none;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px 0 rgba(234, 179, 8, 0.25);
+  font-family: "IBM Plex Sans Thai", system-ui, sans-serif;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px 0 rgba(234, 179, 8, 0.35);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.card {
+  background: #1f2937;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  border: 1px solid #374151;
+  transition: all 0.2s ease;
+}
+
+.operation-card {
+  background: #1f2937;
+  border-radius: 1.5rem;
+  padding: 2rem;
+  text-align: center;
+  transition: all 0.3s ease;
+  border: 1px solid #374151;
+}
+
+.operation-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3),
+    0 10px 10px -5px rgba(0, 0, 0, 0.2);
+}
+
+.operation-button {
+  min-height: 64px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  border-radius: 1rem;
+  box-shadow: 0 4px 14px 0 rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  font-family: "IBM Plex Sans Thai", system-ui, sans-serif;
+}
+
+.operation-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px 0 rgba(0, 0, 0, 0.15);
+}
+
+.operation-icon {
+  height: 3rem;
+  width: 3rem;
+  margin: 0 auto 1rem;
+}
+
+.btn-primary:hover {
+  background-color: #d97706;
+  transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.card {
+  background: white;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
