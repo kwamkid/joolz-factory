@@ -1,126 +1,265 @@
 /* src/app/globals.css */
-@import "tailwindcss/base";
-@import "tailwindcss/components";
-@import "tailwindcss/utilities";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* IBM Plex Sans Thai สำหรับทั้งเว็บ */
-body {
-  font-family: "IBM Plex Sans Thai", system-ui, -apple-system, sans-serif;
-  margin: 0;
-  padding: 0;
-  background: #00231f;
-}
+/* CSS Variables for Theme */
+@layer base {
+  :root {
+    /* Brand Colors */
+    --color-primary: #e9b308;
+    --color-primary-dark: #ca9a00;
+    --color-primary-light: #fcc70a;
 
-/* Apply font ให้ทุก element */
-* {
-  font-family: "IBM Plex Sans Thai", system-ui, -apple-system, sans-serif;
-}
+    --color-secondary: #00231f;
+    --color-secondary-dark: #001915;
+    --color-secondary-light: #003a33;
 
-/* Custom utilities */
-.bg-gradient-brand {
-  background: #00231f;
-}
+    /* Neutral Colors */
+    --color-gray-50: #f9fafb;
+    --color-gray-100: #f3f4f6;
+    --color-gray-200: #e5e7eb;
+    --color-gray-300: #d1d5db;
+    --color-gray-400: #9ca3af;
+    --color-gray-500: #6b7280;
+    --color-gray-600: #4b5563;
+    --color-gray-700: #374151;
+    --color-gray-800: #1f2937;
+    --color-gray-900: #111827;
 
-.btn-primary {
-  background: linear-gradient(135deg, #eab308 0%, #facc15 100%);
-  color: #000;
-  border: none;
-  border-radius: 0.75rem;
-  padding: 0.75rem 1.5rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 14px 0 rgba(234, 179, 8, 0.25);
-  font-family: "IBM Plex Sans Thai", system-ui, sans-serif;
-}
+    /* Status Colors */
+    --color-success: #10b981;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
+    --color-info: #3b82f6;
 
-.btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px 0 rgba(234, 179, 8, 0.35);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.card {
-  background: #1f2937;
-  border-radius: 1rem;
-  padding: 1.5rem;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-  border: 1px solid #374151;
-  transition: all 0.2s ease;
-}
-
-.operation-card {
-  background: #1f2937;
-  border-radius: 1.5rem;
-  padding: 2rem;
-  text-align: center;
-  transition: all 0.3s ease;
-  border: 1px solid #374151;
-}
-
-.operation-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3),
-    0 10px 10px -5px rgba(0, 0, 0, 0.2);
-}
-
-.operation-button {
-  min-height: 64px;
-  font-size: 1.125rem;
-  font-weight: 700;
-  border-radius: 1rem;
-  box-shadow: 0 4px 14px 0 rgba(0, 0, 0, 0.1);
-  transition: all 0.2s ease;
-  width: 100%;
-  border: none;
-  cursor: pointer;
-  font-family: "IBM Plex Sans Thai", system-ui, sans-serif;
-}
-
-.operation-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px 0 rgba(0, 0, 0, 0.15);
-}
-
-.operation-icon {
-  height: 3rem;
-  width: 3rem;
-  margin: 0 auto 1rem;
-}
-
-.btn-primary:hover {
-  background-color: #d97706;
-  transform: translateY(-1px);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.card {
-  background: white;
-  border-radius: 1rem;
-  padding: 1.5rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e5e7eb;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
+    /* Spacing */
+    --sidebar-width: 280px;
+    --header-height: 64px;
   }
 }
 
-.animate-spin {
-  animation: spin 1s linear infinite;
+/* Base Styles */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-size: 16px;
+  }
+
+  body {
+    @apply bg-secondary text-white;
+    font-family: "IBM Plex Sans Thai", system-ui, -apple-system, sans-serif;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-800;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-600 rounded;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500;
+  }
+}
+
+/* Component Styles */
+@layer components {
+  /* Buttons */
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-secondary hover:bg-primary-dark active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-700 text-white hover:bg-gray-600 active:scale-95;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent hover:bg-gray-800 text-gray-300 hover:text-white;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700 active:scale-95;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-lg;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-sm;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-gray-800 rounded-xl p-6 border border-gray-700;
+  }
+
+  .card-hover {
+    @apply hover:border-primary hover:shadow-lg transition-all duration-200;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200;
+  }
+
+  .input-error {
+    @apply border-red-500 focus:ring-red-500 focus:border-red-500;
+  }
+
+  /* Labels */
+  .label {
+    @apply block text-sm font-medium text-gray-300 mb-2;
+  }
+
+  /* Sidebar */
+  .sidebar-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 cursor-pointer;
+  }
+
+  .sidebar-item:hover {
+    @apply bg-gray-800 text-white;
+  }
+
+  .sidebar-item.active {
+    @apply bg-primary text-secondary font-semibold;
+  }
+
+  /* Mobile Menu */
+  .mobile-menu-overlay {
+    @apply fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden;
+  }
+
+  /* Page Container */
+  .page-container {
+    @apply min-h-screen bg-secondary;
+  }
+
+  .page-content {
+    @apply p-4 sm:p-6 lg:p-8;
+  }
+
+  /* Dashboard Grid */
+  .dashboard-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6;
+  }
+
+  /* Stat Card */
+  .stat-card {
+    @apply card text-center;
+  }
+
+  .stat-value {
+    @apply text-3xl font-bold text-primary mb-1;
+  }
+
+  .stat-label {
+    @apply text-sm text-gray-400;
+  }
+}
+
+/* Utilities */
+@layer utilities {
+  /* Text Truncate */
+  .truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Animations */
+  .animate-slide-in-left {
+    animation: slideInLeft 0.3s ease-out;
+  }
+
+  .animate-slide-in-right {
+    animation: slideInRight 0.3s ease-out;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  @keyframes slideInLeft {
+    from {
+      transform: translateX(-100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideInRight {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* Responsive Utilities */
+  .container-responsive {
+    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  /* Hide Scrollbar */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Responsive Font Sizes */
+@media (max-width: 640px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+/* Print Styles */
+@media print {
+  body {
+    @apply bg-white text-black;
+  }
+
+  .no-print {
+    display: none !important;
+  }
 }

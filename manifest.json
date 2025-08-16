@@ -1,0 +1,18 @@
+{
+  "name": "Joolz Factory Management System",
+  "short_name": "Joolz Factory",
+  "description": "ระบบจัดการโรงงานน้ำผลไม้และสมุนไพร",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#00231F",
+  "theme_color": "#00231F",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
