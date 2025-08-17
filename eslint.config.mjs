@@ -1,4 +1,4 @@
-// eslint.config.mjs
+// Path: eslint.config.mjs
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { FlatCompat } from "@eslint/eslintrc";
@@ -23,16 +23,16 @@ const eslintConfig = [
       // ปรับ React warnings
       "react/no-unescaped-entities": "off",
       "react/display-name": "off",
-      "react/jsx-key": "warn", // เปลี่ยนจาก error เป็น warn
+      "react/jsx-key": "warn",
 
       // ปรับ Next.js warnings
       "@next/next/no-img-element": "off",
       "@next/next/no-html-link-for-pages": "off",
 
       // General JavaScript
-      "no-console": "off", // อนุญาตให้ใช้ console.log
-      "no-debugger": "warn", // แค่ warn สำหรับ debugger
-      "no-unused-vars": "off", // ปิดสำหรับ JS
+      "no-console": "off",
+      "no-debugger": "warn",
+      "no-unused-vars": "off",
       "prefer-const": "warn",
       "no-var": "warn",
 
@@ -40,29 +40,14 @@ const eslintConfig = [
       "import/no-anonymous-default-export": "off",
       "import/prefer-default-export": "off",
 
-      // Allow any naming convention
+      // TypeScript specific
       "@typescript-eslint/naming-convention": "off",
-
-      // TypeScript specific - เผื่อโปรเจ็คใหญ่ขึ้น
       "@typescript-eslint/no-non-null-assertion": "warn",
       "@typescript-eslint/prefer-optional-chain": "warn",
     },
-
-    // กำหนดไฟล์ที่จะไม่ check
-    ignorePatterns: [
-      "node_modules/**",
-      ".next/**",
-      "out/**",
-      "build/**",
-      "dist/**",
-      "public/**",
-      "*.config.js",
-      "*.config.ts",
-      "*.config.mjs",
-    ],
   },
   {
-    // สำหรับไฟล์ config - ปิด rules เกือบหมด
+    // สำหรับไฟล์ config
     files: [
       "*.config.js",
       "*.config.ts",
@@ -77,7 +62,7 @@ const eslintConfig = [
     },
   },
   {
-    // สำหรับ development files
+    // สำหรับ test files
     files: [
       "**/*.test.{js,ts,tsx}",
       "**/*.spec.{js,ts,tsx}",
@@ -87,6 +72,20 @@ const eslintConfig = [
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-non-null-assertion": "off",
     },
+  },
+  {
+    // ระบุ files ที่จะ ignore แทนการใช้ ignorePatterns
+    ignores: [
+      "**/node_modules/**",
+      "**/.next/**",
+      "**/out/**",
+      "**/build/**",
+      "**/dist/**",
+      "**/public/**",
+      "**/*.config.js",
+      "**/*.config.ts",
+      "**/*.config.mjs",
+    ],
   },
 ];
 
