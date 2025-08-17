@@ -45,11 +45,11 @@ export default function LoginPage() {
     
     try {
       await signIn(adminForm.email, adminForm.password);
-      router.push('/');
+      router.push('/'); // ไปหน้าหลักที่ root
     } catch (error: any) {
       console.error('Login error:', error);
       
-      // Handle specific error cases
+       // Handle specific error cases
       if (error.code === 'auth/user-not-found') {
         setError('ไม่พบผู้ใช้นี้ในระบบ');
       } else if (error.code === 'auth/wrong-password') {
@@ -58,8 +58,12 @@ export default function LoginPage() {
         setError('รูปแบบอีเมลไม่ถูกต้อง');
       } else if (error.code === 'auth/too-many-requests') {
         setError('ลองเข้าสู่ระบบมากเกินไป กรุณารอสักครู่');
+      } else if (error.code === 'auth/invalid-credential') {
+        setError('ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง กรุณาตรวจสอบอีเมลและรหัสผ่าน');
+      } else if (error.code === 'auth/user-disabled') {
+        setError('บัญชีผู้ใช้นี้ถูกระงับ');
       } else {
-        setError('เกิดข้อผิดพลาดในการเข้าสู่ระบบ');
+        setError(`เกิดข้อผิดพลาด: ${error.message}`);
       }
     } finally {
       setIsLoading(false);

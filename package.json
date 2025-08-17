@@ -6,7 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:firebase": "node scripts/test-firebase.js",
+        "list:users": "node scripts/list-users.js",
+            "fix:admin": "node scripts/fix-admin.js"
+
+
+
   },
   "dependencies": {
     "@next/third-parties": "^15.3.5",

@@ -1,19 +1,20 @@
-// app/(dashboard)/page.tsx
+// src/app/(dashboard)/dashboard/page.tsx
+'use client';
+
 import React from 'react';
 import { 
   Package, Factory, TrendingUp, Users, 
   AlertCircle, CheckCircle2, Clock, ShoppingCart,
   BarChart3, FileText, Calendar, DollarSign
 } from 'lucide-react';
-import { Button, Card, StatCard } from '@/components/ui';
 
 export default function DashboardPage() {
   // Mock data
   const stats = [
-    { label: 'ยอดผลิตวันนี้', value: '450', icon: <Factory className="h-8 w-8" />, trend: 'up', trendValue: '+12%' },
-    { label: 'สต็อกคงเหลือ', value: '1,250', icon: <Package className="h-8 w-8" />, trend: 'down', trendValue: '-5%' },
-    { label: 'ซัพพลายเออร์', value: '15', icon: <Users className="h-8 w-8" /> },
-    { label: 'รายได้วันนี้', value: '฿25,600', icon: <DollarSign className="h-8 w-8" />, trend: 'up', trendValue: '+8%' }
+    { label: 'ยอดผลิตวันนี้', value: '450', icon: Factory, trend: 'up', trendValue: '+12%' },
+    { label: 'สต็อกคงเหลือ', value: '1,250', icon: Package, trend: 'down', trendValue: '-5%' },
+    { label: 'ซัพพลายเออร์', value: '15', icon: Users },
+    { label: 'รายได้วันนี้', value: '฿25,600', icon: DollarSign, trend: 'up', trendValue: '+8%' }
   ];
 
   const recentProduction = [
@@ -39,7 +40,20 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <div className="dashboard-grid mb-8">
         {stats.map((stat, index) => (
-          <StatCard key={index} {...stat} />
+          <div key={index} className="card">
+            <div className="flex items-center justify-between mb-4">
+              <stat.icon className="h-8 w-8 text-primary" />
+              {stat.trend && (
+                <span className={`text-sm font-medium ${
+                  stat.trend === 'up' ? 'text-green-500' : 'text-red-500'
+                }`}>
+                  {stat.trendValue}
+                </span>
+              )}
+            </div>
+            <p className="stat-value">{stat.value}</p>
+            <p className="stat-label">{stat.label}</p>
+          </div>
         ))}
       </div>
 
@@ -47,7 +61,8 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Production - 2 columns */}
         <div className="lg:col-span-2">
-          <Card title="การผลิตล่าสุด" className="h-full">
+          <div className="card h-full">
+            <h3 className="text-lg font-semibold text-white mb-4">การผลิตล่าสุด</h3>
             <div className="space-y-4">
               {recentProduction.map((item) => (
                 <div key={item.id} className="flex items-center justify-between p-4 bg-gray-700 rounded-lg">
@@ -85,19 +100,21 @@ export default function DashboardPage() {
             </div>
             
             <div className="mt-6 flex justify-between items-center">
-              <Button variant="ghost" size="sm">
+              <button className="btn btn-ghost btn-sm">
                 ดูทั้งหมด
-              </Button>
-              <Button variant="primary" icon={<Factory className="h-4 w-4" />}>
+              </button>
+              <button className="btn btn-primary">
+                <Factory className="h-4 w-4" />
                 เริ่มผลิตใหม่
-              </Button>
+              </button>
             </div>
-          </Card>
+          </div>
         </div>
 
         {/* Low Stock Alert - 1 column */}
         <div>
-          <Card title="สต็อกใกล้หมด" className="h-full">
+          <div className="card h-full">
+            <h3 className="text-lg font-semibold text-white mb-4">สต็อกใกล้หมด</h3>
             <div className="space-y-3">
               {lowStockItems.map((item, index) => (
                 <div key={index} className="p-3 bg-red-900/20 border border-red-600 rounded-lg">
@@ -125,10 +142,11 @@ export default function DashboardPage() {
               ))}
             </div>
             
-            <Button variant="secondary" className="w-full mt-4" icon={<ShoppingCart className="h-4 w-4" />}>
+            <button className="btn btn-secondary w-full mt-4">
+              <ShoppingCart className="h-4 w-4" />
               สั่งซื้อวัตถุดิบ
-            </Button>
-          </Card>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -136,76 +154,22 @@ export default function DashboardPage() {
       <div className="mt-8">
         <h3 className="text-lg font-semibold text-white mb-4">เมนูลัด</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Card hover className="text-center cursor-pointer">
+          <div className="card card-hover text-center cursor-pointer">
             <Factory className="h-12 w-12 text-primary mx-auto mb-3" />
             <p className="font-medium text-white">เริ่มผลิต</p>
-          </Card>
-          <Card hover className="text-center cursor-pointer">
+          </div>
+          <div className="card card-hover text-center cursor-pointer">
             <Package className="h-12 w-12 text-primary mx-auto mb-3" />
             <p className="font-medium text-white">จัดการสต็อก</p>
-          </Card>
-          <Card hover className="text-center cursor-pointer">
+          </div>
+          <div className="card card-hover text-center cursor-pointer">
             <BarChart3 className="h-12 w-12 text-primary mx-auto mb-3" />
             <p className="font-medium text-white">ดูรายงาน</p>
-          </Card>
-          <Card hover className="text-center cursor-pointer">
+          </div>
+          <div className="card card-hover text-center cursor-pointer">
             <Users className="h-12 w-12 text-primary mx-auto mb-3" />
             <p className="font-medium text-white">ซัพพลายเออร์</p>
-          </Card>
-        </div>
-      </div>
-
-      {/* Theme Preview Section */}
-      <div className="mt-12 space-y-8">
-        <div>
-          <h3 className="text-lg font-semibold text-white mb-4">ตัวอย่าง Theme Components</h3>
-          
-          {/* Buttons */}
-          <Card title="Buttons">
-            <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                <Button variant="primary">Primary</Button>
-                <Button variant="secondary">Secondary</Button>
-                <Button variant="ghost">Ghost</Button>
-                <Button variant="danger">Danger</Button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="primary" size="sm">Small</Button>
-                <Button variant="primary" size="md">Medium</Button>
-                <Button variant="primary" size="lg">Large</Button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="primary" loading>Loading...</Button>
-                <Button variant="primary" disabled>Disabled</Button>
-              </div>
-            </div>
-          </Card>
-
-          {/* Color Palette */}
-          <Card title="Color Palette">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <div className="h-20 bg-primary rounded-lg mb-2"></div>
-                <p className="text-sm text-gray-400">Primary</p>
-                <p className="text-xs text-gray-500">#E9B308</p>
-              </div>
-              <div>
-                <div className="h-20 bg-secondary rounded-lg mb-2 border border-gray-600"></div>
-                <p className="text-sm text-gray-400">Secondary</p>
-                <p className="text-xs text-gray-500">#00231F</p>
-              </div>
-              <div>
-                <div className="h-20 bg-green-500 rounded-lg mb-2"></div>
-                <p className="text-sm text-gray-400">Success</p>
-                <p className="text-xs text-gray-500">#10B981</p>
-              </div>
-              <div>
-                <div className="h-20 bg-red-500 rounded-lg mb-2"></div>
-                <p className="text-sm text-gray-400">Danger</p>
-                <p className="text-xs text-gray-500">#EF4444</p>
-              </div>
-            </div>
-          </Card>
+          </div>
         </div>
       </div>
     </div>

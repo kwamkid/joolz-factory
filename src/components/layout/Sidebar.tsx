@@ -1,8 +1,8 @@
+// src/components/layout/Sidebar.tsx
 import React, { useState, useEffect } from 'react';
 import { 
   Home, Factory, Package, Users, FlaskConical, BarChart3, 
-  UserPlus, TrendingUp, ClipboardList, Settings, LogOut,
-  Menu, X, ChevronRight
+  UserPlus, TrendingUp, ClipboardList, Menu, X, ChevronRight
 } from 'lucide-react';
 
 interface MenuItem {
@@ -35,7 +35,7 @@ export default function Sidebar({
       id: 'dashboard',
       label: 'หน้าหลัก',
       icon: Home,
-      path: '/'
+      path: '/dashboard'
     },
     {
       id: 'production',
@@ -100,13 +100,8 @@ export default function Sidebar({
           requiredRoles: ['admin']
         }
       ]
-    },
-    {
-      id: 'settings',
-      label: 'ตั้งค่า',
-      icon: Settings,
-      path: '/settings'
     }
+  
   ];
 
   const adminItems: MenuItem[] = [
@@ -114,7 +109,7 @@ export default function Sidebar({
       id: 'users',
       label: 'จัดการผู้ใช้',
       icon: UserPlus,
-      path: '/admin/users',
+      path: '/users',
       requiredRoles: ['admin']
     }
   ];
@@ -140,8 +135,8 @@ export default function Sidebar({
 
   // Check if path is active
   const isActive = (path: string): boolean => {
-    if (path === '/') {
-      return currentPath === '/' || currentPath === '/dashboard';
+    if (path === '/dashboard') {
+      return currentPath === '/dashboard';
     }
     return currentPath === path || currentPath.startsWith(path + '/');
   };

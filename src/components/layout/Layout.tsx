@@ -1,4 +1,4 @@
-// components/layout/Layout.tsx
+// src/components/layout/Layout.tsx
 import React from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
@@ -26,13 +26,11 @@ export default function Layout({
   // State สำหรับ search
   const [searchValue, setSearchValue] = React.useState('');
 
+  // ตรวจสอบว่าเป็น LINE User หรือไม่
+  const isLineUser = user?.lineId ? true : false;
+
   const handleNavigate = (path: string) => {
-    // แก้ path ถ้าเป็น /dashboard ให้เป็น /
-    if (path === '/dashboard') {
-      router.push('/');
-    } else {
-      router.push(path);
-    }
+    router.push(path);
   };
 
   const handleLogout = async () => {
@@ -76,6 +74,8 @@ export default function Layout({
           userName={user?.name || 'User'}
           userRole={user?.role === 'admin' ? 'ผู้ดูแลระบบ' : 
                    user?.role === 'manager' ? 'ผู้จัดการ' : 'พนักงาน'}
+          userEmail={user?.email || ''}
+          isLineUser={isLineUser}
           onLogout={handleLogout}
         />
         

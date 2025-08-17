@@ -1,4 +1,4 @@
-// app/api/auth/line/callback/route.ts
+// src/app/api/auth/line/callback/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
@@ -44,14 +44,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/login?error=no_code', request.url));
     }
 
-    // Log environment variables (without exposing secrets)
-    console.log('Environment check:', {
-      hasClientId: !!process.env.NEXT_PUBLIC_LINE_CLIENT_ID,
-      hasClientSecret: !!process.env.LINE_CLIENT_SECRET,
-      hasCallbackUrl: !!process.env.NEXT_PUBLIC_LINE_CALLBACK_URL,
-      callbackUrl: process.env.NEXT_PUBLIC_LINE_CALLBACK_URL,
-    });
-
     // Exchange code for access token
     const tokenResponse = await fetch(LINE_TOKEN_URL, {
       method: 'POST',
@@ -92,12 +84,52 @@ export async function GET(request: NextRequest) {
     }
 
     const profile = await profileResponse.json();
+    console.log('LINE Profile received:', { userId: profile.userId, displayName: profile.displayName });
+
+    // Check if this is an invite flow
+    let inviteToken = null;
+    let inviteData = null;
+    
+    if (state && state.startsWith('invite_')) {
+      inviteToken = state.replace('invite_', '');
+      console.log('Processing invite token:', inviteToken);
+      
+      // Find the invitation
+      const inviteQuery = await adminDb.collection('invitations')
+        .where('token', '==', inviteToken)
+        .limit(1)
+        .get();
+      
+      if (!inviteQuery.empty) {
+        const inviteDoc = inviteQuery.docs[0];
+        inviteData = inviteDoc.data();
+        
+        // Check if invite is valid
+        if (inviteData.used) {
+          console.log('Invite already used');
+          return NextResponse.redirect(new URL('/login?error=invite_used', request.url));
+        }
+        
+        // Check if expired
+        const expiresAt = inviteData.expiresAt.toDate();
+        if (new Date() > expiresAt) {
+          console.log('Invite expired');
+          return NextResponse.redirect(new URL('/login?error=invite_expired', request.url));
+        }
+        
+        console.log('Valid invite found, role:', inviteData.role);
+      } else {
+        console.log('Invite token not found');
+        return NextResponse.redirect(new URL('/login?error=invite_not_found', request.url));
+      }
+    }
 
     // Create or update Firebase user
     let firebaseUser;
     try {
       // Try to get existing user
       firebaseUser = await adminAuth.getUser(profile.userId);
+      console.log('Existing user found');
     } catch (error) {
       // User doesn't exist, create new one
       firebaseUser = await adminAuth.createUser({
@@ -105,6 +137,7 @@ export async function GET(request: NextRequest) {
         displayName: profile.displayName,
         photoURL: profile.pictureUrl,
       });
+      console.log('New user created');
     }
 
     // Create or update user document in Firestore
@@ -112,15 +145,39 @@ export async function GET(request: NextRequest) {
     const userDoc = await userRef.get();
 
     if (!userDoc.exists) {
-      // New user - set as operation role by default
+      // New user
+      const role = inviteData ? inviteData.role : 'operation'; // Use invite role or default to operation
+      
       await userRef.set({
         email: `${profile.userId}@line.user`,
         name: profile.displayName,
-        role: 'operation',
+        role: role,
         lineId: profile.userId,
         pictureUrl: profile.pictureUrl,
         createdAt: new Date(),
+        lastLogin: new Date(),
+        invitedBy: inviteData ? inviteData.createdBy : null,
+        inviteToken: inviteToken,
       });
+      
+      console.log('New user created with role:', role);
+      
+      // Mark invitation as used
+      if (inviteData && inviteToken) {
+        const inviteQuery = await adminDb.collection('invitations')
+          .where('token', '==', inviteToken)
+          .limit(1)
+          .get();
+        
+        if (!inviteQuery.empty) {
+          await inviteQuery.docs[0].ref.update({
+            used: true,
+            usedBy: profile.displayName,
+            usedAt: new Date(),
+          });
+          console.log('Invitation marked as used');
+        }
+      }
     } else {
       // Existing user - update profile info
       await userRef.update({
@@ -128,6 +185,7 @@ export async function GET(request: NextRequest) {
         pictureUrl: profile.pictureUrl,
         lastLogin: new Date(),
       });
+      console.log('Existing user updated');
     }
 
     // Create custom token for client-side authentication
@@ -136,6 +194,12 @@ export async function GET(request: NextRequest) {
     // Redirect to client with custom token
     const redirectUrl = new URL('/line-success', request.url);
     redirectUrl.searchParams.set('token', customToken);
+    
+    // Add invite success flag if this was an invite flow
+    if (inviteData) {
+      redirectUrl.searchParams.set('invited', 'true');
+      redirectUrl.searchParams.set('role', inviteData.role);
+    }
     
     return NextResponse.redirect(redirectUrl);
 
