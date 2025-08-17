@@ -1,13 +1,15 @@
-// Path: app/(auth)/line-success/page.tsx
+// Path: src/app/(auth)/line-success/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { signInWithCustomToken } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useAuth } from '@/lib/auth-context';
+import { Loader2 } from 'lucide-react';
 
-export default function LineSuccessPage() {
+// Component ที่ใช้ useSearchParams
+function LineSuccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
@@ -87,5 +89,23 @@ export default function LineSuccessPage() {
         <p className="text-gray-400">กำลังไปหน้าหลัก...</p>
       </div>
     </div>
+  );
+}
+
+// Loading component สำหรับ Suspense
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-secondary">
+      <Loader2 className="h-8 w-8 text-primary animate-spin" />
+    </div>
+  );
+}
+
+// Main component ที่ครอบด้วย Suspense
+export default function LineSuccessPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <LineSuccessContent />
+    </Suspense>
   );
 }
