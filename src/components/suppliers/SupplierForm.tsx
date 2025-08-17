@@ -1,12 +1,23 @@
-// src/components/suppliers/SupplierForm.tsx
+// Path: src/components/suppliers/SupplierForm.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  Save, Loader2, Users, Phone, MapPin, 
-  MessageCircle, Mail, Package, X, Plus
-} from 'lucide-react';
-import { Supplier } from '@/types/supplier';
+import { Plus, X, AlertCircle } from 'lucide-react';
+
+interface Supplier {
+  id?: string;
+  name: string;
+  contact?: string;
+  address?: string;
+  lineId?: string;
+  email?: string;
+  rawMaterials: string[];
+  status: 'active' | 'banned';
+  rating?: number;
+  totalRatings?: number;
+  averagePrice?: number;
+  lastPurchase?: Date;
+}
 
 interface SupplierFormProps {
   initialData?: Partial<Supplier>;
@@ -14,7 +25,7 @@ interface SupplierFormProps {
   onCancel: () => void;
   isEdit?: boolean;
   loading?: boolean;
-  availableMaterials?: string[]; // รายการวัตถุดิบที่มีในระบบ
+  availableMaterials?: string[];
 }
 
 export interface SupplierFormData {
@@ -27,6 +38,16 @@ export interface SupplierFormData {
   status: 'active' | 'banned';
 }
 
+// แก้ interface FormData ให้ status รองรับทั้ง 'active' และ 'banned'
+interface FormData {
+  name: string;
+  contact: string;
+  address: string;
+  lineId: string;
+  email: string;
+  status: 'active' | 'banned';  // แก้ตรงนี้
+}
+
 export default function SupplierForm({
   initialData,
   onSubmit,
@@ -35,13 +56,13 @@ export default function SupplierForm({
   loading = false,
   availableMaterials = ['ส้ม', 'เลม่อน', 'เก๊กฮวย', 'อัญชัญ', 'น้ำผึ้ง', 'น้ำตาล']
 }: SupplierFormProps) {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     name: '',
     contact: '',
     address: '',
     lineId: '',
     email: '',
-    status: 'active' as const
+    status: 'active'
   });
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
   const [newMaterial, setNewMaterial] = useState('');
@@ -108,267 +129,214 @@ export default function SupplierForm({
     
     if (!validateForm()) return;
 
-    const supplierData: SupplierFormData = {
-      name: formData.name.trim(),
-      contact: formData.contact.trim() || undefined,
-      address: formData.address.trim() || undefined,
-      lineId: formData.lineId.trim() || undefined,
-      email: formData.email.trim() || undefined,
+    const submitData: SupplierFormData = {
+      name: formData.name,
+      contact: formData.contact || undefined,
+      address: formData.address || undefined,
+      lineId: formData.lineId || undefined,
+      email: formData.email || undefined,
       rawMaterials: selectedMaterials,
       status: formData.status
     };
 
-    await onSubmit(supplierData);
+    await onSubmit(submitData);
   };
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div className="space-y-6">
-        {/* Basic Information */}
-        <div>
-          <h3 className="text-lg font-semibold text-white mb-4">ข้อมูลพื้นฐาน</h3>
-          
-          {/* Name */}
-          <div className="mb-4">
-            <label className="label">ชื่อซัพพลายเออร์ *</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
-              className={`input ${errors.name ? 'input-error' : ''}`}
-              placeholder="บริษัท สวนส้มภูเก็ต จำกัด"
-            />
-            {errors.name && (
-              <p className="mt-1 text-sm text-red-400">{errors.name}</p>
-            )}
-          </div>
-
-          {/* Address */}
-          <div>
-            <label className="label">ที่อยู่</label>
-            <textarea
-              value={formData.address}
-              onChange={(e) => setFormData({...formData, address: e.target.value})}
-              className="input min-h-[80px]"
-              placeholder="123 หมู่ 5 ต.ป่าตอง อ.กะทู้ จ.ภูเก็ต"
-            />
-          </div>
-        </div>
-
-        {/* Contact Information */}
-        <div>
-          <h3 className="text-lg font-semibold text-white mb-4">ช่องทางติดต่อ</h3>
-          {errors.contact && (
-            <p className="mb-3 text-sm text-red-400">{errors.contact}</p>
-          )}
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Phone */}
-            <div>
-              <label className="label">
-                <Phone className="inline h-4 w-4 mr-1" />
-                เบอร์โทรศัพท์
-              </label>
-              <input
-                type="text"
-                value={formData.contact}
-                onChange={(e) => setFormData({...formData, contact: e.target.value})}
-                className="input"
-                placeholder="081-234-5678"
-              />
-            </div>
-
-            {/* LINE ID */}
-            <div>
-              <label className="label">
-                <MessageCircle className="inline h-4 w-4 mr-1" />
-                LINE ID
-              </label>
-              <input
-                type="text"
-                value={formData.lineId}
-                onChange={(e) => setFormData({...formData, lineId: e.target.value})}
-                className="input"
-                placeholder="@orangefarm"
-              />
-            </div>
-
-            {/* Email */}
-            <div>
-              <label className="label">
-                <Mail className="inline h-4 w-4 mr-1" />
-                อีเมล
-              </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({...formData, email: e.target.value})}
-                className={`input ${errors.email ? 'input-error' : ''}`}
-                placeholder="contact@orangefarm.com"
-              />
-              {errors.email && (
-                <p className="mt-1 text-sm text-red-400">{errors.email}</p>
-              )}
-            </div>
-
-            {/* Status (Edit only) */}
-            {isEdit && (
-              <div>
-                <label className="label">สถานะ</label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({...formData, status: e.target.value as any})}
-                  className="input"
-                >
-                  <option value="active">ใช้งาน</option>
-                  <option value="banned">ระงับ</option>
-                </select>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Raw Materials */}
-        <div>
-          <h3 className="text-lg font-semibold text-white mb-4">
-            <Package className="inline h-5 w-5 mr-2" />
-            วัตถุดิบที่จำหน่าย *
-          </h3>
-          {errors.materials && (
-            <p className="mb-3 text-sm text-red-400">{errors.materials}</p>
-          )}
-          
-          <div className="space-y-3">
-            {/* Available Materials */}
-            <div className="flex flex-wrap gap-2">
-              {availableMaterials.map(material => (
-                <button
-                  key={material}
-                  type="button"
-                  onClick={() => handleMaterialToggle(material)}
-                  className={`px-4 py-2 rounded-lg border-2 transition-all ${
-                    selectedMaterials.includes(material)
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-gray-700 hover:border-gray-600 text-gray-400'
-                  }`}
-                >
-                  {material}
-                </button>
-              ))}
-              
-              {/* Add New Material Button */}
-              {!showAddMaterial && (
-                <button
-                  type="button"
-                  onClick={() => setShowAddMaterial(true)}
-                  className="px-4 py-2 rounded-lg border-2 border-dashed border-gray-700 hover:border-gray-600 text-gray-400 transition-all"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-
-            {/* Add New Material Input */}
-            {showAddMaterial && (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newMaterial}
-                  onChange={(e) => setNewMaterial(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleAddNewMaterial()}
-                  className="input flex-1"
-                  placeholder="ชื่อวัตถุดิบใหม่..."
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={handleAddNewMaterial}
-                  disabled={!newMaterial.trim()}
-                  className="btn btn-primary"
-                >
-                  เพิ่ม
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddMaterial(false);
-                    setNewMaterial('');
-                  }}
-                  className="btn btn-ghost"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-
-            {/* Selected Materials Display */}
-            {selectedMaterials.length > 0 && (
-              <div className="bg-gray-800 rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-2">วัตถุดิบที่เลือก:</p>
-                <div className="flex flex-wrap gap-2">
-                  {selectedMaterials.map(material => (
-                    <span key={material} className="px-3 py-1 bg-primary/20 text-primary text-sm rounded-full">
-                      {material}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Performance Info (Edit only) */}
-        {isEdit && initialData && (
-          <div>
-            <h3 className="text-lg font-semibold text-white mb-4">ข้อมูลผลการดำเนินงาน</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div className="bg-gray-800 rounded-lg p-3">
-                <p className="text-gray-400">คะแนนเฉลี่ย</p>
-                <p className="text-xl font-semibold text-white">
-                  {initialData.rating?.toFixed(1) || '-'} / 5
-                </p>
-              </div>
-              <div className="bg-gray-800 rounded-lg p-3">
-                <p className="text-gray-400">จำนวนรีวิว</p>
-                <p className="text-xl font-semibold text-white">
-                  {initialData.totalRatings || 0}
-                </p>
-              </div>
-              <div className="bg-gray-800 rounded-lg p-3">
-                <p className="text-gray-400">ราคาเฉลี่ย</p>
-                <p className="text-xl font-semibold text-white">
-                  ฿{initialData.averagePrice?.toFixed(0) || 0}/kg
-                </p>
-              </div>
-              <div className="bg-gray-800 rounded-lg p-3">
-                <p className="text-gray-400">ซื้อแล้ว</p>
-                <p className="text-xl font-semibold text-white">
-                  {initialData.totalPurchases || 0} ครั้ง
-                </p>
-              </div>
-            </div>
-          </div>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Name */}
+      <div>
+        <label className="label">ชื่อซัพพลายเออร์ *</label>
+        <input
+          type="text"
+          value={formData.name}
+          onChange={(e) => setFormData({...formData, name: e.target.value})}
+          className={`input ${errors.name ? 'input-error' : ''}`}
+          placeholder="ชื่อบริษัทหรือร้านค้า"
+        />
+        {errors.name && (
+          <p className="mt-1 text-sm text-red-400 flex items-center gap-1">
+            <AlertCircle className="h-3 w-3" />
+            {errors.name}
+          </p>
         )}
       </div>
 
-      {/* Actions */}
-      <div className="flex gap-3 mt-8 pt-6 border-t border-gray-700">
+      {/* Contact */}
+      <div>
+        <label className="label">เบอร์โทรศัพท์</label>
+        <input
+          type="tel"
+          value={formData.contact}
+          onChange={(e) => setFormData({...formData, contact: e.target.value})}
+          className="input"
+          placeholder="081-234-5678"
+        />
+      </div>
+
+      {/* Address */}
+      <div>
+        <label className="label">ที่อยู่</label>
+        <textarea
+          value={formData.address}
+          onChange={(e) => setFormData({...formData, address: e.target.value})}
+          rows={3}
+          className="input resize-none"
+          placeholder="ที่อยู่สำหรับติดต่อ"
+        />
+      </div>
+
+      {/* LINE ID */}
+      <div>
+        <label className="label">LINE ID</label>
+        <input
+          type="text"
+          value={formData.lineId}
+          onChange={(e) => setFormData({...formData, lineId: e.target.value})}
+          className="input"
+          placeholder="@supplier"
+        />
+      </div>
+
+      {/* Email */}
+      <div>
+        <label className="label">อีเมล</label>
+        <input
+          type="email"
+          value={formData.email}
+          onChange={(e) => setFormData({...formData, email: e.target.value})}
+          className={`input ${errors.email ? 'input-error' : ''}`}
+          placeholder="email@example.com"
+        />
+        {errors.email && (
+          <p className="mt-1 text-sm text-red-400">{errors.email}</p>
+        )}
+      </div>
+
+      {/* Contact Warning */}
+      {errors.contact && (
+        <div className="bg-red-900/20 border border-red-900 p-3 rounded-lg">
+          <p className="text-red-400 text-sm flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            {errors.contact}
+          </p>
+        </div>
+      )}
+
+      {/* Raw Materials */}
+      <div>
+        <label className="label">วัตถุดิบที่จำหน่าย *</label>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+          {availableMaterials.map((material) => (
+            <button
+              key={material}
+              type="button"
+              onClick={() => handleMaterialToggle(material)}
+              className={`p-3 rounded-lg border-2 transition-all ${
+                selectedMaterials.includes(material)
+                  ? 'bg-primary text-black border-primary'
+                  : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-600'
+              }`}
+            >
+              {material}
+            </button>
+          ))}
+          
+          {/* Add New Material Button */}
+          {!showAddMaterial && (
+            <button
+              type="button"
+              onClick={() => setShowAddMaterial(true)}
+              className="p-3 rounded-lg border-2 border-dashed border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300 transition-all flex items-center justify-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              เพิ่มวัตถุดิบใหม่
+            </button>
+          )}
+        </div>
+
+        {/* Add New Material Input */}
+        {showAddMaterial && (
+          <div className="flex gap-2 mb-3">
+            <input
+              type="text"
+              value={newMaterial}
+              onChange={(e) => setNewMaterial(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddNewMaterial())}
+              className="input flex-1"
+              placeholder="ชื่อวัตถุดิบใหม่"
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={handleAddNewMaterial}
+              className="btn btn-primary"
+            >
+              เพิ่ม
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAddMaterial(false);
+                setNewMaterial('');
+              }}
+              className="btn btn-ghost"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {errors.materials && (
+          <p className="mt-1 text-sm text-red-400">{errors.materials}</p>
+        )}
+      </div>
+
+      {/* Performance Info - Only show in edit mode */}
+      {isEdit && initialData && (
+        <div className="bg-gray-800 rounded-lg p-4 space-y-2">
+          <h3 className="font-medium text-white mb-3">ข้อมูลผลการดำเนินงาน</h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-gray-400">คะแนนเฉลี่ย</p>
+              <p className="text-white font-medium">
+                {initialData.rating ? `${initialData.rating.toFixed(1)} / 5.0` : 'ยังไม่มีการให้คะแนน'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-400">จำนวนครั้งที่ให้คะแนน</p>
+              <p className="text-white font-medium">
+                {initialData.totalRatings || 0} ครั้ง
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-400">ราคาเฉลี่ย</p>
+              <p className="text-white font-medium">
+                {initialData.averagePrice 
+                  ? `฿${initialData.averagePrice.toFixed(2)}/kg` 
+                  : 'ยังไม่มีข้อมูล'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-400">ซื้อล่าสุด</p>
+              <p className="text-white font-medium">
+                {initialData.lastPurchase 
+                  ? new Date(initialData.lastPurchase).toLocaleDateString('th-TH')
+                  : 'ยังไม่เคยซื้อ'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Buttons */}
+      <div className="flex gap-3 pt-4">
         <button
           type="submit"
           disabled={loading}
           className="btn btn-primary flex-1"
         >
-          {loading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              กำลังบันทึก...
-            </>
-          ) : (
-            <>
-              <Save className="h-4 w-4" />
-              {isEdit ? 'บันทึกการเปลี่ยนแปลง' : 'เพิ่มซัพพลายเออร์'}
-            </>
-          )}
+          {loading ? 'กำลังบันทึก...' : (isEdit ? 'บันทึกการเปลี่ยนแปลง' : 'เพิ่มซัพพลายเออร์')}
         </button>
         
         <button
