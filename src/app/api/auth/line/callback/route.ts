@@ -1,22 +1,55 @@
-// src/app/api/auth/line/callback/route.ts
+// Path: app/api/auth/line/callback/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 
-// Initialize Firebase Admin
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
-      clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL!,
-      privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY!.replace(/\\n/g, '\n'),
-    }),
-  });
+// Disable caching for this route
+export const dynamic = 'force-dynamic';
+
+// Safe environment variable getter
+function getEnvVar(key: string, required: boolean = true): string {
+  const value = process.env[key];
+  if (required && !value) {
+    console.error(`Missing required environment variable: ${key}`);
+    return '';
+  }
+  return value || '';
 }
 
-const adminAuth = getAdminAuth();
-const adminDb = getAdminFirestore();
+// Initialize Firebase Admin (only if all required env vars exist)
+function initFirebaseAdmin() {
+  if (getApps().length > 0) {
+    return true;
+  }
+
+  const projectId = getEnvVar('NEXT_PUBLIC_FIREBASE_PROJECT_ID');
+  const clientEmail = getEnvVar('FIREBASE_ADMIN_CLIENT_EMAIL');
+  const privateKeyRaw = getEnvVar('FIREBASE_ADMIN_PRIVATE_KEY');
+
+  if (!projectId || !clientEmail || !privateKeyRaw) {
+    console.error('Firebase Admin initialization skipped - missing credentials');
+    return false;
+  }
+
+  try {
+    // Safe replace operation
+    const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
+    
+    initializeApp({
+      credential: cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      }),
+    });
+    console.log('Firebase Admin initialized successfully');
+    return true;
+  } catch (error) {
+    console.error('Firebase Admin initialization error:', error);
+    return false;
+  }
+}
 
 // LINE API URLs
 const LINE_TOKEN_URL = 'https://api.line.me/oauth2/v2.1/token';
@@ -26,6 +59,16 @@ export async function GET(request: NextRequest) {
   console.log('LINE Callback started');
   
   try {
+    // Initialize Firebase Admin
+    const adminInitialized = initFirebaseAdmin();
+    if (!adminInitialized) {
+      console.error('Firebase Admin not initialized');
+      return NextResponse.redirect(new URL('/login?error=server_error', request.url));
+    }
+
+    const adminAuth = getAdminAuth();
+    const adminDb = getAdminFirestore();
+
     const searchParams = request.nextUrl.searchParams;
     const code = searchParams.get('code');
     const state = searchParams.get('state');
@@ -44,168 +87,130 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/login?error=no_code', request.url));
     }
 
+    // Get environment variables
+    const clientId = getEnvVar('NEXT_PUBLIC_LINE_CLIENT_ID');
+    const clientSecret = getEnvVar('LINE_CLIENT_SECRET');
+    const callbackUrl = getEnvVar('NEXT_PUBLIC_LINE_CALLBACK_URL');
+
+    if (!clientId || !clientSecret || !callbackUrl) {
+      console.error('Missing LINE OAuth configuration');
+      return NextResponse.redirect(new URL('/login?error=server_config', request.url));
+    }
+
     // Exchange code for access token
+    const tokenParams = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: callbackUrl,
+      client_id: clientId,
+      client_secret: clientSecret,
+    });
+
     const tokenResponse = await fetch(LINE_TOKEN_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: process.env.NEXT_PUBLIC_LINE_CALLBACK_URL || '',
-        client_id: process.env.NEXT_PUBLIC_LINE_CLIENT_ID || '',
-        client_secret: process.env.LINE_CLIENT_SECRET || '',
-      }),
+      body: tokenParams.toString(),
     });
 
-    const tokenText = await tokenResponse.text();
-    console.log('Token response status:', tokenResponse.status);
-    
     if (!tokenResponse.ok) {
-      console.error('Token exchange failed:', tokenText);
+      const error = await tokenResponse.text();
+      console.error('Token exchange failed:', error);
       return NextResponse.redirect(new URL('/login?error=token_exchange_failed', request.url));
     }
 
-    const tokenData = JSON.parse(tokenText);
-    console.log('Token received successfully');
-    const accessToken = tokenData.access_token;
+    const tokenData = await tokenResponse.json();
+    const { access_token } = tokenData;
 
-    // Get user profile from LINE
+    // Get LINE profile
     const profileResponse = await fetch(LINE_PROFILE_URL, {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${access_token}`,
       },
     });
 
     if (!profileResponse.ok) {
-      console.error('Profile fetch failed:', await profileResponse.text());
+      const error = await profileResponse.text();
+      console.error('Profile fetch failed:', error);
       return NextResponse.redirect(new URL('/login?error=profile_fetch_failed', request.url));
     }
 
     const profile = await profileResponse.json();
-    console.log('LINE Profile received:', { userId: profile.userId, displayName: profile.displayName });
+    console.log('LINE profile fetched:', { userId: profile.userId });
 
-    // Check if this is an invite flow
-    let inviteToken = null;
-    let inviteData = null;
+    // Check if user exists in our database
+    let userDoc = await adminDb.collection('users').doc(profile.userId).get();
     
-    if (state && state.startsWith('invite_')) {
-      inviteToken = state.replace('invite_', '');
-      console.log('Processing invite token:', inviteToken);
-      
-      // Find the invitation
-      const inviteQuery = await adminDb.collection('invitations')
-        .where('token', '==', inviteToken)
-        .limit(1)
-        .get();
-      
-      if (!inviteQuery.empty) {
-        const inviteDoc = inviteQuery.docs[0];
-        inviteData = inviteDoc.data();
-        
-        // Check if invite is valid
-        if (inviteData.used) {
-          console.log('Invite already used');
-          return NextResponse.redirect(new URL('/login?error=invite_used', request.url));
-        }
-        
-        // Check if expired
-        const expiresAt = inviteData.expiresAt.toDate();
-        if (new Date() > expiresAt) {
-          console.log('Invite expired');
-          return NextResponse.redirect(new URL('/login?error=invite_expired', request.url));
-        }
-        
-        console.log('Valid invite found, role:', inviteData.role);
-      } else {
-        console.log('Invite token not found');
-        return NextResponse.redirect(new URL('/login?error=invite_not_found', request.url));
-      }
-    }
-
-    // Create or update Firebase user
-    let firebaseUser;
-    try {
-      // Try to get existing user
-      firebaseUser = await adminAuth.getUser(profile.userId);
-      console.log('Existing user found');
-    } catch (error) {
-      // User doesn't exist, create new one
-      firebaseUser = await adminAuth.createUser({
-        uid: profile.userId,
-        displayName: profile.displayName,
-        photoURL: profile.pictureUrl,
-      });
-      console.log('New user created');
-    }
-
-    // Create or update user document in Firestore
-    const userRef = adminDb.collection('users').doc(profile.userId);
-    const userDoc = await userRef.get();
-
     if (!userDoc.exists) {
-      // New user
-      const role = inviteData ? inviteData.role : 'operation'; // Use invite role or default to operation
+      console.log('New user, checking invitation...');
       
-      await userRef.set({
-        email: `${profile.userId}@line.user`,
-        name: profile.displayName,
-        role: role,
-        lineId: profile.userId,
-        pictureUrl: profile.pictureUrl,
-        createdAt: new Date(),
-        lastLogin: new Date(),
-        invitedBy: inviteData ? inviteData.createdBy : null,
-        inviteToken: inviteToken,
-      });
-      
-      console.log('New user created with role:', role);
-      
-      // Mark invitation as used
-      if (inviteData && inviteToken) {
-        const inviteQuery = await adminDb.collection('invitations')
-          .where('token', '==', inviteToken)
-          .limit(1)
+      // Check if there's a valid invitation
+      if (state && state !== 'normal_login') {
+        const inviteSnap = await adminDb.collection('invitations')
+          .where('token', '==', state)
+          .where('status', '==', 'pending')
           .get();
-        
-        if (!inviteQuery.empty) {
-          await inviteQuery.docs[0].ref.update({
-            used: true,
-            usedBy: profile.displayName,
+
+        if (!inviteSnap.empty) {
+          const invite = inviteSnap.docs[0];
+          const inviteData = invite.data();
+          
+          console.log('Valid invitation found:', inviteData.role);
+
+          // Create new user with invited role
+          await adminDb.collection('users').doc(profile.userId).set({
+            uid: profile.userId,
+            email: `${profile.userId}@line.user`,
+            displayName: profile.displayName,
+            photoURL: profile.pictureUrl || null,
+            role: inviteData.role,
+            provider: 'line',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            isActive: true,
+          });
+
+          // Update invitation status
+          await invite.ref.update({
+            status: 'used',
+            usedBy: profile.userId,
             usedAt: new Date(),
           });
-          console.log('Invitation marked as used');
+
+          console.log('User created with role:', inviteData.role);
+        } else {
+          console.log('No valid invitation found, redirecting to login');
+          return NextResponse.redirect(new URL('/login?error=no_invitation', request.url));
         }
+      } else {
+        console.log('No invitation token, redirecting to login');
+        return NextResponse.redirect(new URL('/login?error=no_invitation', request.url));
       }
     } else {
-      // Existing user - update profile info
-      await userRef.update({
-        name: profile.displayName,
-        pictureUrl: profile.pictureUrl,
-        lastLogin: new Date(),
+      console.log('Existing user found');
+      
+      // Update user info
+      await userDoc.ref.update({
+        displayName: profile.displayName,
+        photoURL: profile.pictureUrl || null,
+        updatedAt: new Date(),
       });
-      console.log('Existing user updated');
     }
 
-    // Create custom token for client-side authentication
+    // Create custom token
     const customToken = await adminAuth.createCustomToken(profile.userId);
+    console.log('Custom token created');
 
-    // Redirect to client with custom token
+    // Create response with custom token - redirect to auth/line-success
     const redirectUrl = new URL('/line-success', request.url);
     redirectUrl.searchParams.set('token', customToken);
     
-    // Add invite success flag if this was an invite flow
-    if (inviteData) {
-      redirectUrl.searchParams.set('invited', 'true');
-      redirectUrl.searchParams.set('role', inviteData.role);
-    }
-    
+    console.log('Redirecting to /auth/line-success with token');
     return NextResponse.redirect(redirectUrl);
 
   } catch (error) {
-    console.error('LINE callback error details:', error);
-    console.error('Error type:', error instanceof Error ? error.message : 'Unknown error');
+    console.error('LINE callback error:', error);
     return NextResponse.redirect(new URL('/login?error=callback_failed', request.url));
   }
 }
