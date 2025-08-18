@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { 
-  collection, addDoc, doc, updateDoc, getDoc, serverTimestamp 
+  collection, addDoc, doc, updateDoc, getDoc, getDocs, query, where, serverTimestamp 
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ArrowLeft } from 'lucide-react';
@@ -40,7 +40,7 @@ export default function InventoryPurchasePage() {
       const batchId = `INV${dateStr}${sequence}`;
 
       // Create inventory batch
-      const inventoryData = {
+      const inventoryData: any = {
         batchId,
         materialType: formData.materialType,
         supplier: {
@@ -53,9 +53,8 @@ export default function InventoryPurchasePage() {
         remainingQuantity: formData.quantity,
         pricePerUnit: formData.pricePerUnit,
         totalCost: formData.quantity * formData.pricePerUnit,
-        invoiceNumber: formData.invoiceNumber,
-        invoiceUrl: invoiceUrl || formData.invoiceUrl,
-        notes: formData.notes,
+        invoiceNumber: formData.invoiceNumber || '',
+        notes: formData.notes || '',
         status: 'active',
         isFinished: false,
         createdBy: currentUser?.uid || '',
@@ -63,12 +62,38 @@ export default function InventoryPurchasePage() {
         createdAt: serverTimestamp()
       };
 
+      // Only add invoiceUrl if it exists
+      if (invoiceUrl || formData.invoiceUrl) {
+        inventoryData.invoiceUrl = invoiceUrl || formData.invoiceUrl;
+      }
+
       await addDoc(collection(db, 'inventory_batches'), inventoryData);
 
+      // Calculate new average price for the supplier
+      // Get all purchases for this supplier and material
+      const purchasesQuery = query(
+        collection(db, 'inventory_batches'),
+        where('supplier.id', '==', formData.supplierId),
+        where('materialType', '==', formData.materialType)
+      );
+      
+      const purchasesSnapshot = await getDocs(purchasesQuery);
+      
+      let totalQuantity = formData.quantity;
+      let totalAmount = formData.quantity * formData.pricePerUnit;
+      
+      purchasesSnapshot.forEach((doc) => {
+        const data = doc.data();
+        totalQuantity += data.quantity || 0;
+        totalAmount += data.totalCost || 0;
+      });
+      
+      // Calculate average price per unit
+      const newAveragePrice = totalAmount / totalQuantity;
+      
       // Update supplier statistics
       const newTotalPurchases = (supplierData?.totalPurchases || 0) + 1;
       const newTotalAmount = (supplierData?.totalAmount || 0) + inventoryData.totalCost;
-      const newAveragePrice = newTotalAmount / (newTotalPurchases * formData.quantity);
 
       await updateDoc(doc(db, 'suppliers', formData.supplierId), {
         totalPurchases: newTotalPurchases,

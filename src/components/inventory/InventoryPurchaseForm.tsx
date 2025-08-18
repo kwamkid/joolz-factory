@@ -9,14 +9,7 @@ import {
   Package, Users, Camera, Star, Loader2, X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-
-interface RawMaterial {
-  id: string;
-  name: string;
-  unit: string;
-  imageUrl?: string;
-  isActive: boolean;
-}
+import { RawMaterial } from '@/types/raw-material';
 
 interface Supplier {
   id: string;
@@ -97,7 +90,11 @@ export default function InventoryPurchaseForm({
           name: data.name,
           unit: data.unit || 'kg',
           imageUrl: data.imageUrl,
-          isActive: data.isActive
+          isActive: data.isActive,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          createdBy: data.createdBy,
+          updatedAt: data.updatedAt?.toDate(),
+          updatedBy: data.updatedBy
         });
       });
       
@@ -110,7 +107,8 @@ export default function InventoryPurchaseForm({
         id: `default-${index}`,
         name,
         unit: 'kg',
-        isActive: true
+        isActive: true,
+        createdAt: new Date()
       })));
     } finally {
       setLoadingMaterials(false);
@@ -276,6 +274,10 @@ export default function InventoryPurchaseForm({
 
   const isLoading = loading || uploadingImage;
 
+  // หาหน่วยของวัตถุดิบที่เลือก
+  const selectedMaterial = materials.find(m => m.name === formData.materialType);
+  const unit = selectedMaterial?.unit || 'kg';
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Material Type */}
@@ -310,7 +312,8 @@ export default function InventoryPurchaseForm({
                     className="w-12 h-12 object-cover rounded-lg mx-auto mb-2"
                   />
                 )}
-                {material.name}
+                <div>{material.name}</div>
+                <div className="text-xs opacity-75 mt-1">({material.unit})</div>
               </button>
             ))}
           </div>
@@ -344,7 +347,7 @@ export default function InventoryPurchaseForm({
               <option value="">เลือกซัพพลายเออร์</option>
               {suppliers.map((supplier) => (
                 <option key={supplier.id} value={supplier.id}>
-                  {supplier.name} ⭐ {supplier.rating.toFixed(1)} (฿{supplier.averagePrice.toFixed(0)}/kg)
+                  {supplier.name} ⭐ {supplier.rating.toFixed(1)} (฿{supplier.averagePrice.toFixed(0)}/{unit})
                 </option>
               ))}
             </select>
@@ -355,7 +358,7 @@ export default function InventoryPurchaseForm({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Quantity */}
         <div>
-          <label className="label">จำนวน (kg) *</label>
+          <label className="label">จำนวน ({unit}) *</label>
           <input
             type="number"
             value={formData.quantity}
@@ -389,7 +392,7 @@ export default function InventoryPurchaseForm({
             <div>
               <p className="text-sm text-gray-400">สรุปการซื้อ</p>
               <p className="text-xs text-gray-500 mt-1">
-                {formData.quantity} kg × ฿{getPricePerUnit().toFixed(2)}/kg
+                {formData.quantity} {unit} × ฿{getPricePerUnit().toFixed(2)}/{unit}
               </p>
             </div>
             <p className="text-3xl font-bold text-primary">

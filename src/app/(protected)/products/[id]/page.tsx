@@ -1,26 +1,26 @@
-// src/app/(protected)/raw-materials/[id]/page.tsx
+// src/app/(protected)/products/[id]/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { doc, getDoc, setDoc, updateDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import RawMaterialForm, { RawMaterialFormData } from '@/components/raw-materials/RawMaterialForm';
-import { RawMaterial } from '@/types/raw-material';
+import ProductForm, { ProductFormData } from '@/components/products/ProductForm';
+import { Product } from '@/types/production';
 
-export default function RawMaterialFormPage() {
+export default function ProductFormPage() {
   const router = useRouter();
   const params = useParams();
   const { user: currentUser } = useAuth();
-  const materialId = params.id as string;
-  const isEdit = materialId !== 'new';
+  const productId = params.id as string;
+  const isEdit = productId !== 'new';
 
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(isEdit);
-  const [materialData, setMaterialData] = useState<RawMaterial | null>(null);
+  const [productData, setProductData] = useState<Product | null>(null);
 
   // Check permission
   useEffect(() => {
@@ -30,29 +30,32 @@ export default function RawMaterialFormPage() {
     }
   }, [currentUser, router]);
 
-  // Fetch material data if editing
+  // Fetch product data if editing
   useEffect(() => {
     if (isEdit) {
-      fetchMaterialData();
+      fetchProductData();
     }
-  }, [materialId]);
+  }, [productId]);
 
-  const fetchMaterialData = async () => {
+  const fetchProductData = async () => {
     try {
       setLoadingData(true);
-      const materialDoc = await getDoc(doc(db, 'raw_materials', materialId));
+      const productDoc = await getDoc(doc(db, 'products', productId));
       
-      if (!materialDoc.exists()) {
-        toast.error('ไม่พบข้อมูลวัตถุดิบ');
-        router.push('/raw-materials');
+      if (!productDoc.exists()) {
+        toast.error('ไม่พบข้อมูลผลิตภัณฑ์');
+        router.push('/products');
         return;
       }
 
-      const data = materialDoc.data();
-      setMaterialData({
-        id: materialDoc.id,
+      const data = productDoc.data();
+      setProductData({
+        id: productDoc.id,
         name: data.name,
-        unit: data.unit || 'kg',
+        nameEn: data.nameEn,
+        category: data.category,
+        rawMaterials: data.rawMaterials || [],
+        averageRatios: data.averageRatios,
         imageUrl: data.imageUrl,
         isActive: data.isActive !== false,
         createdAt: data.createdAt?.toDate() || new Date(),
@@ -61,44 +64,44 @@ export default function RawMaterialFormPage() {
         updatedBy: data.updatedBy
       });
     } catch (error) {
-      console.error('Error fetching material:', error);
+      console.error('Error fetching product:', error);
       toast.error('เกิดข้อผิดพลาดในการโหลดข้อมูล');
-      router.push('/raw-materials');
+      router.push('/products');
     } finally {
       setLoadingData(false);
     }
   };
 
-  const handleSubmit = async (formData: RawMaterialFormData, imageUrl: string) => {
+  const handleSubmit = async (formData: ProductFormData, imageUrl: string) => {
     setLoading(true);
 
     try {
-      const materialData = {
+      const productData = {
         ...formData,
         imageUrl,
-        updatedAt: new Date(),
+        updatedAt: serverTimestamp(),
         updatedBy: currentUser?.uid
       };
 
       if (isEdit) {
         // Update existing
-        await updateDoc(doc(db, 'raw_materials', materialId), materialData);
-        toast.success('อัพเดทข้อมูลวัตถุดิบสำเร็จ');
+        await updateDoc(doc(db, 'products', productId), productData);
+        toast.success('อัพเดทข้อมูลผลิตภัณฑ์สำเร็จ');
       } else {
         // Create new
-        const newMaterialData = {
-          ...materialData,
-          createdAt: new Date(),
+        const newProductData = {
+          ...productData,
+          createdAt: serverTimestamp(),
           createdBy: currentUser?.uid
         };
         
-        await setDoc(doc(collection(db, 'raw_materials')), newMaterialData);
-        toast.success('เพิ่มวัตถุดิบใหม่สำเร็จ');
+        await setDoc(doc(collection(db, 'products')), newProductData);
+        toast.success('เพิ่มผลิตภัณฑ์ใหม่สำเร็จ');
       }
 
-      router.push('/raw-materials');
+      router.push('/products');
     } catch (error) {
-      console.error('Error saving material:', error);
+      console.error('Error saving product:', error);
       toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
       throw error;
     } finally {
@@ -107,7 +110,7 @@ export default function RawMaterialFormPage() {
   };
 
   const handleCancel = () => {
-    router.push('/raw-materials');
+    router.push('/products');
   };
 
   if (loadingData) {
@@ -136,16 +139,16 @@ export default function RawMaterialFormPage() {
         </button>
         
         <h1 className="text-2xl font-bold text-white mb-2">
-          {isEdit ? 'แก้ไขข้อมูลวัตถุดิบ' : 'เพิ่มวัตถุดิบใหม่'}
+          {isEdit ? 'แก้ไขข้อมูลผลิตภัณฑ์' : 'เพิ่มผลิตภัณฑ์ใหม่'}
         </h1>
-        <p className="text-gray-400">กรอกข้อมูลวัตถุดิบ</p>
+        <p className="text-gray-400">กรอกข้อมูลผลิตภัณฑ์และวัตถุดิบที่ใช้</p>
       </div>
 
       {/* Form */}
       <div className="max-w-3xl">
         <div className="card">
-          <RawMaterialForm
-            initialData={materialData || undefined}
+          <ProductForm
+            initialData={productData || undefined}
             onSubmit={handleSubmit}
             onCancel={handleCancel}
             isEdit={isEdit}

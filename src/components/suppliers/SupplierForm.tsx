@@ -2,7 +2,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, X, AlertCircle } from 'lucide-react';
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { Plus, X, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
+import { RawMaterial } from '@/types/raw-material';
+import Link from 'next/link';
 
 interface Supplier {
   id?: string;
@@ -25,7 +29,6 @@ interface SupplierFormProps {
   onCancel: () => void;
   isEdit?: boolean;
   loading?: boolean;
-  availableMaterials?: string[];
 }
 
 export interface SupplierFormData {
@@ -38,14 +41,13 @@ export interface SupplierFormData {
   status: 'active' | 'banned';
 }
 
-// แก้ interface FormData ให้ status รองรับทั้ง 'active' และ 'banned'
 interface FormData {
   name: string;
   contact: string;
   address: string;
   lineId: string;
   email: string;
-  status: 'active' | 'banned';  // แก้ตรงนี้
+  status: 'active' | 'banned';
 }
 
 export default function SupplierForm({
@@ -53,8 +55,7 @@ export default function SupplierForm({
   onSubmit,
   onCancel,
   isEdit = false,
-  loading = false,
-  availableMaterials = ['ส้ม', 'เลม่อน', 'เก๊กฮวย', 'อัญชัญ', 'น้ำผึ้ง', 'น้ำตาล']
+  loading = false
 }: SupplierFormProps) {
   const [formData, setFormData] = useState<FormData>({
     name: '',
@@ -65,9 +66,11 @@ export default function SupplierForm({
     status: 'active'
   });
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
-  const [newMaterial, setNewMaterial] = useState('');
-  const [showAddMaterial, setShowAddMaterial] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  // Raw materials from database
+  const [availableMaterials, setAvailableMaterials] = useState<RawMaterial[]>([]);
+  const [loadingMaterials, setLoadingMaterials] = useState(true);
 
   // Initialize form data
   useEffect(() => {
@@ -84,6 +87,58 @@ export default function SupplierForm({
     }
   }, [initialData]);
 
+  // Load raw materials from database
+  useEffect(() => {
+    loadRawMaterials();
+  }, []);
+
+  const loadRawMaterials = async () => {
+    try {
+      setLoadingMaterials(true);
+      const materialsQuery = query(
+        collection(db, 'raw_materials'),
+        where('isActive', '==', true),
+        orderBy('name', 'asc')
+      );
+      
+      const snapshot = await getDocs(materialsQuery);
+      const materials: RawMaterial[] = [];
+      
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        materials.push({
+          id: doc.id,
+          name: data.name,
+          unit: data.unit || 'kg',
+          imageUrl: data.imageUrl,
+          isActive: data.isActive,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          createdBy: data.createdBy,
+          updatedAt: data.updatedAt?.toDate(),
+          updatedBy: data.updatedBy
+        });
+      });
+      
+      setAvailableMaterials(materials);
+      
+      // ถ้ายังไม่มีวัตถุดิบในระบบ ใช้ default ไปก่อน
+      if (materials.length === 0) {
+        const defaultMaterials = ['ส้ม', 'เลม่อน', 'เก๊กฮวย', 'อัญชัญ', 'น้ำผึ้ง', 'น้ำตาล'];
+        setAvailableMaterials(defaultMaterials.map((name, index) => ({
+          id: `default-${index}`,
+          name,
+          unit: 'kg',
+          isActive: true,
+          createdAt: new Date()
+        })));
+      }
+    } catch (error) {
+      console.error('Error loading raw materials:', error);
+    } finally {
+      setLoadingMaterials(false);
+    }
+  };
+
   const handleMaterialToggle = (material: string) => {
     setSelectedMaterials(prev => {
       if (prev.includes(material)) {
@@ -91,14 +146,6 @@ export default function SupplierForm({
       }
       return [...prev, material];
     });
-  };
-
-  const handleAddNewMaterial = () => {
-    if (newMaterial.trim() && !selectedMaterials.includes(newMaterial.trim())) {
-      setSelectedMaterials([...selectedMaterials, newMaterial.trim()]);
-      setNewMaterial('');
-      setShowAddMaterial(false);
-    }
   };
 
   const validateForm = () => {
@@ -226,65 +273,49 @@ export default function SupplierForm({
       {/* Raw Materials */}
       <div>
         <label className="label">วัตถุดิบที่จำหน่าย *</label>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
-          {availableMaterials.map((material) => (
-            <button
-              key={material}
-              type="button"
-              onClick={() => handleMaterialToggle(material)}
-              className={`p-3 rounded-lg border-2 transition-all ${
-                selectedMaterials.includes(material)
-                  ? 'bg-primary text-black border-primary'
-                  : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-600'
-              }`}
-            >
-              {material}
-            </button>
-          ))}
-          
-          {/* Add New Material Button */}
-          {!showAddMaterial && (
-            <button
-              type="button"
-              onClick={() => setShowAddMaterial(true)}
-              className="p-3 rounded-lg border-2 border-dashed border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300 transition-all flex items-center justify-center gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              เพิ่มวัตถุดิบใหม่
-            </button>
-          )}
-        </div>
-
-        {/* Add New Material Input */}
-        {showAddMaterial && (
-          <div className="flex gap-2 mb-3">
-            <input
-              type="text"
-              value={newMaterial}
-              onChange={(e) => setNewMaterial(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddNewMaterial())}
-              className="input flex-1"
-              placeholder="ชื่อวัตถุดิบใหม่"
-              autoFocus
-            />
-            <button
-              type="button"
-              onClick={handleAddNewMaterial}
-              className="btn btn-primary"
-            >
-              เพิ่ม
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowAddMaterial(false);
-                setNewMaterial('');
-              }}
-              className="btn btn-ghost"
-            >
-              <X className="h-4 w-4" />
-            </button>
+        
+        {loadingMaterials ? (
+          <div className="flex items-center justify-center py-8 bg-gray-800 rounded-lg">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <span className="ml-2 text-gray-400">กำลังโหลดวัตถุดิบ...</span>
           </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+              {availableMaterials.map((material) => (
+                <button
+                  key={material.id}
+                  type="button"
+                  onClick={() => handleMaterialToggle(material.name)}
+                  className={`p-3 rounded-lg border-2 transition-all flex items-center gap-2 ${
+                    selectedMaterials.includes(material.name)
+                      ? 'bg-primary text-black border-primary'
+                      : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  {material.imageUrl && (
+                    <img 
+                      src={material.imageUrl} 
+                      alt={material.name}
+                      className="w-6 h-6 object-cover rounded"
+                    />
+                  )}
+                  <span>{material.name}</span>
+                </button>
+              ))}
+              
+              {/* Add New Material Button - Link to Raw Materials Page */}
+              <Link
+                href="/raw-materials/new"
+                target="_blank"
+                className="p-3 rounded-lg border-2 border-dashed border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300 transition-all flex items-center justify-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                <span>เพิ่มวัตถุดิบใหม่</span>
+                <ExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+          </>
         )}
 
         {errors.materials && (

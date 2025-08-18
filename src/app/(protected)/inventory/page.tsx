@@ -205,13 +205,22 @@ export default function InventoryPage() {
       <div className="mb-8">
         <div className="flex items-center justify-between mb-2">
           <h1 className="text-2xl font-bold text-white">คลังวัตถุดิบ</h1>
-          <button
-            onClick={() => router.push('/inventory/purchase')}
-            className="btn btn-primary"
-          >
-            <ShoppingCart className="h-4 w-4" />
-            บันทึกการซื้อ
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => router.push('/inventory/purchase')}
+              className="btn btn-primary"
+            >
+              <ShoppingCart className="h-4 w-4" />
+              ซื้อของเข้า
+            </button>
+            <button
+              onClick={() => router.push('/inventory/damage')}
+              className="btn bg-red-600 hover:bg-red-700 text-white"
+            >
+              <Trash2 className="h-4 w-4" />
+              ตัดของเสีย
+            </button>
+          </div>
         </div>
         <p className="text-gray-400">จัดการวัตถุดิบและติดตามสต็อกคงเหลือ</p>
       </div>
@@ -281,38 +290,6 @@ export default function InventoryPage() {
             <option value="expired">หมดอายุ</option>
           </select>
         </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        <button
-          onClick={() => router.push('/inventory/damage')}
-          className="card card-hover text-center"
-        >
-          <Trash2 className="h-8 w-8 text-red-400 mx-auto mb-2" />
-          <p className="text-sm text-white">บันทึกของเสีย</p>
-        </button>
-        <button
-          onClick={() => router.push('/inventory/history')}
-          className="card card-hover text-center"
-        >
-          <Clock className="h-8 w-8 text-blue-400 mx-auto mb-2" />
-          <p className="text-sm text-white">ประวัติการเคลื่อนไหว</p>
-        </button>
-        <button
-          onClick={() => router.push('/inventory/report')}
-          className="card card-hover text-center"
-        >
-          <TrendingDown className="h-8 w-8 text-yellow-400 mx-auto mb-2" />
-          <p className="text-sm text-white">รายงานสต็อก</p>
-        </button>
-        <button
-          onClick={() => router.push('/inventory/expiry')}
-          className="card card-hover text-center"
-        >
-          <Calendar className="h-8 w-8 text-orange-400 mx-auto mb-2" />
-          <p className="text-sm text-white">ตรวจสอบวันหมดอายุ</p>
-        </button>
       </div>
 
       {/* Inventory Table */}
@@ -423,20 +400,11 @@ export default function InventoryPage() {
                       {/* Edit button - only for manager and admin */}
                       {currentUser?.role !== 'operation' && !item.isFinished && (
                         <button
-                          onClick={() => router.push(`/inventory/${item.id}/edit`)}
+                          onClick={() => router.push(`/inventory/purchase/${item.id}`)}
                           className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
                           title="แก้ไข"
                         >
                           <Edit className="h-4 w-4" />
-                        </button>
-                      )}
-                      {item.remainingQuantity > 0 && (
-                        <button
-                          onClick={() => router.push(`/inventory/${item.id}/damage`)}
-                          className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
-                          title="บันทึกของเสีย"
-                        >
-                          <Trash2 className="h-4 w-4" />
                         </button>
                       )}
                     </div>

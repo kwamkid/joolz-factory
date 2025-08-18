@@ -4,12 +4,12 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { collection, getDocs, doc, updateDoc, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { 
   Users, Plus, Search, Edit, Star, Phone, 
   MapPin, MessageCircle, Mail, Package,
-  TrendingUp, Ban, AlertCircle, Filter
+  TrendingUp, Ban, AlertCircle, Filter, Trash2, Loader2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Supplier } from '@/types/supplier';
@@ -32,6 +32,14 @@ export default function SuppliersPage() {
       router.push('/dashboard');
     }
   }, [currentUser, router]);
+
+  // Debug user role
+  useEffect(() => {
+    if (currentUser) {
+      console.log('Current User:', currentUser);
+      console.log('User Role:', currentUser.role);
+    }
+  }, [currentUser]);
 
   // Fetch suppliers
   useEffect(() => {
@@ -158,6 +166,38 @@ export default function SuppliersPage() {
     } catch (error) {
       console.error('Error unbanning supplier:', error);
       toast.error('เกิดข้อผิดพลาดในการยกเลิกการระงับ');
+    }
+  };
+
+  const handleDeleteSupplier = async (supplier: Supplier) => {
+    // Check if supplier has purchase history
+    if (supplier.totalPurchases > 0) {
+      const confirmDelete = confirm(
+        `⚠️ คำเตือน!\n\n` +
+        `ซัพพลายเออร์ "${supplier.name}" มีประวัติการซื้อ ${supplier.totalPurchases} ครั้ง\n` +
+        `มูลค่ารวม ${formatCurrency(supplier.totalAmount)}\n\n` +
+        `การลบจะทำให้ข้อมูลประวัติการซื้อไม่สมบูรณ์\n` +
+        `แนะนำให้ใช้การ "ระงับ" แทนการลบ\n\n` +
+        `ยืนยันที่จะลบหรือไม่?`
+      );
+      
+      if (!confirmDelete) return;
+    } else {
+      // No purchase history
+      const confirmDelete = confirm(
+        `ต้องการลบซัพพลายเออร์ "${supplier.name}" ใช่หรือไม่?`
+      );
+      
+      if (!confirmDelete) return;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'suppliers', supplier.id));
+      toast.success('ลบซัพพลายเออร์สำเร็จ');
+      fetchSuppliers();
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      toast.error('เกิดข้อผิดพลาดในการลบซัพพลายเออร์');
     }
   };
 
@@ -408,6 +448,17 @@ export default function SuppliersPage() {
                           title="ยกเลิกการระงับ"
                         >
                           <TrendingUp className="h-4 w-4" />
+                        </button>
+                      )}
+                      
+                      {/* Delete Button - Only for Admin and Manager */}
+                      {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+                        <button
+                          onClick={() => handleDeleteSupplier(supplier)}
+                          className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
+                          title="ลบ"
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       )}
                     </div>

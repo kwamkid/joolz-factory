@@ -1,10 +1,10 @@
-// src/app/(protected)/inventory/[id]/edit/page.tsx
+// src/app/(protected)/inventory/purchase/[id]/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocs, updateDoc, serverTimestamp, collection, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -91,11 +91,41 @@ export default function InventoryEditPage() {
       // Update Firestore
       await updateDoc(doc(db, 'inventory_batches', inventoryId), updateData);
 
-      // Update supplier average price if price changed
-      if (inventoryData && formData.pricePerUnit !== inventoryData.pricePerUnit) {
-        // This is simplified - in production, you'd recalculate from all purchases
+      // Recalculate supplier average price if price or quantity changed
+      if (inventoryData && 
+          (formData.pricePerUnit !== inventoryData.pricePerUnit || 
+           formData.quantity !== inventoryData.quantity)) {
+        
+        // Get all purchases for this supplier and material
+        const purchasesQuery = query(
+          collection(db, 'inventory_batches'),
+          where('supplier.id', '==', formData.supplierId),
+          where('materialType', '==', formData.materialType)
+        );
+        
+        const purchasesSnapshot = await getDocs(purchasesQuery);
+        
+        let totalQuantity = 0;
+        let totalAmount = 0;
+        
+        purchasesSnapshot.forEach((doc) => {
+          const data = doc.data();
+          // Use updated values for current record
+          if (doc.id === inventoryId) {
+            totalQuantity += formData.quantity;
+            totalAmount += totalCost;
+          } else {
+            totalQuantity += data.quantity || 0;
+            totalAmount += data.totalCost || 0;
+          }
+        });
+        
+        // Calculate new average price
+        const newAveragePrice = totalQuantity > 0 ? totalAmount / totalQuantity : 0;
+        
+        // Update supplier average price
         await updateDoc(doc(db, 'suppliers', formData.supplierId), {
-          averagePrice: formData.pricePerUnit,
+          averagePrice: newAveragePrice,
           updatedAt: serverTimestamp()
         });
       }
