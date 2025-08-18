@@ -1,8 +1,10 @@
 // src/components/layout/Sidebar.tsx
+
 import React, { useState, useEffect } from 'react';
 import { 
   Home, Factory, Package, Users, FlaskConical, BarChart3, 
-  UserPlus, TrendingUp, ClipboardList, Menu, X, ChevronRight
+  UserPlus, TrendingUp, ClipboardList, Menu, X, ChevronRight,
+  Leaf
 } from 'lucide-react';
 
 interface MenuItem {
@@ -77,6 +79,13 @@ export default function Sidebar({
       label: 'จัดการขวด',
       icon: FlaskConical,
       path: '/bottles',
+      requiredRoles: ['manager', 'admin']
+    },
+    {
+      id: 'raw-materials',
+      label: 'จัดการวัตถุดิบ',
+      icon: Leaf,
+      path: '/raw-materials',
       requiredRoles: ['manager', 'admin']
     },
     {

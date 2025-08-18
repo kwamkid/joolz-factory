@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { 
-  Package, Plus, Search, TrendingDown, AlertTriangle,
+  Package, Edit, Plus, Search, TrendingDown, AlertTriangle,
   Calendar, DollarSign, ShoppingCart, Trash2,
   Filter, ChevronDown, Clock, CheckCircle
 } from 'lucide-react';
@@ -420,6 +420,16 @@ export default function InventoryPage() {
                       >
                         <Package className="h-4 w-4" />
                       </button>
+                      {/* Edit button - only for manager and admin */}
+                      {currentUser?.role !== 'operation' && !item.isFinished && (
+                        <button
+                          onClick={() => router.push(`/inventory/${item.id}/edit`)}
+                          className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                          title="แก้ไข"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                      )}
                       {item.remainingQuantity > 0 && (
                         <button
                           onClick={() => router.push(`/inventory/${item.id}/damage`)}
