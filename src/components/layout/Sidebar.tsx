@@ -44,21 +44,6 @@ export default function Sidebar({
       label: 'การผลิต',
       icon: Factory,
       path: '/production',
-      subItems: [
-        {
-          id: 'production-planning',
-          label: 'วางแผนการผลิต',
-          icon: ClipboardList,
-          path: '/production/planning',
-          requiredRoles: ['manager', 'admin']
-        },
-        {
-          id: 'production-execute',
-          label: 'ผลิตสินค้า',
-          icon: Factory,
-          path: '/production/execute'
-        }
-      ]
     },
     {
       id: 'inventory',
@@ -79,6 +64,13 @@ export default function Sidebar({
       label: 'จัดการขวด',
       icon: FlaskConical,
       path: '/bottles',
+      requiredRoles: ['manager', 'admin']
+    },
+    {
+      id: 'products',
+      label: 'จัดการผลิตภัณฑ์',
+      icon: Package,
+      path: '/products',
       requiredRoles: ['manager', 'admin']
     },
     {

@@ -35,6 +35,7 @@ export interface ProductionBatch {
   batchId: string;
   productId: string;
   productName: string;
+  productionDate?: string; // วันที่วางแผนจะผลิต (YYYY-MM-DD)
   status: 'planned' | 'in_progress' | 'completed' | 'cancelled';
   
   // Planning data

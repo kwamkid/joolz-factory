@@ -44,6 +44,7 @@ export default function BottleQuantityInput({
             
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => handleChange(bottle.id, -10)}
                 disabled={disabled}
                 className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded disabled:opacity-50"
@@ -61,6 +62,7 @@ export default function BottleQuantityInput({
               />
               
               <button
+                type="button"
                 onClick={() => handleChange(bottle.id, 10)}
                 disabled={disabled}
                 className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded disabled:opacity-50"
