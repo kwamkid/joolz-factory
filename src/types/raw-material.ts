@@ -1,4 +1,4 @@
-// src/types/raw-material.ts
+// Path: src/types/raw-material.ts
 export interface RawMaterial {
   id: string;
   name: string;              // ชื่อวัตถุดิบ เช่น 'ส้ม', 'เลม่อน'

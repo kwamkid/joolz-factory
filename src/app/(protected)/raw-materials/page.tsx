@@ -1,4 +1,4 @@
-// src/app/(protected)/raw-materials/page.tsx
+// Path: src/app/(protected)/raw-materials/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -60,6 +60,7 @@ export default function RawMaterialsPage() {
           id: doc.id,
           name: data.name,
           unit: data.unit || 'kg',
+          minStockLevel: data.minStockLevel || 50,
           imageUrl: data.imageUrl,
           isActive: data.isActive !== false,
           createdAt: data.createdAt?.toDate() || new Date(),
@@ -201,7 +202,12 @@ export default function RawMaterialsPage() {
             {/* Info */}
             <div className="mb-4">
               <h3 className="text-lg font-semibold text-white mb-1">{material.name}</h3>
-              <p className="text-sm text-gray-400">หน่วย: {material.unit}</p>
+              <div className="space-y-1">
+                <p className="text-sm text-gray-400">หน่วย: {material.unit}</p>
+                <p className="text-sm text-gray-400">
+                  สต็อกขั้นต่ำ: <span className="text-yellow-400">{material.minStockLevel} {material.unit}</span>
+                </p>
+              </div>
             </div>
 
             {/* Status */}

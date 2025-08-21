@@ -1,4 +1,4 @@
-// src/components/raw-materials/RawMaterialForm.tsx
+// Path: src/components/raw-materials/RawMaterialForm.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -10,6 +10,7 @@ interface RawMaterialFormProps {
   initialData?: {
     name: string;
     unit: string;
+    minStockLevel: number;
     imageUrl?: string;
     isActive: boolean;
   };
@@ -22,6 +23,7 @@ interface RawMaterialFormProps {
 export interface RawMaterialFormData {
   name: string;
   unit: string;
+  minStockLevel: number;
   isActive: boolean;
 }
 
@@ -39,6 +41,7 @@ export default function RawMaterialForm({
   const [formData, setFormData] = useState({
     name: '',
     unit: 'kg',
+    minStockLevel: 50,
     isActive: true
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -52,6 +55,7 @@ export default function RawMaterialForm({
       setFormData({
         name: initialData.name || '',
         unit: initialData.unit || 'kg',
+        minStockLevel: initialData.minStockLevel || 50,
         isActive: initialData.isActive !== false
       });
 
@@ -106,6 +110,10 @@ export default function RawMaterialForm({
       newErrors.unit = 'กรุณาระบุหน่วย';
     }
 
+    if (formData.minStockLevel < 0) {
+      newErrors.minStockLevel = 'จำนวนขั้นต่ำต้องมากกว่าหรือเท่ากับ 0';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -141,6 +149,7 @@ export default function RawMaterialForm({
       const materialData: RawMaterialFormData = {
         name: formData.name.trim(),
         unit: formData.unit.trim(),
+        minStockLevel: formData.minStockLevel,
         isActive: formData.isActive
       };
 
@@ -176,28 +185,62 @@ export default function RawMaterialForm({
           {/* Unit */}
           <div>
             <label className="label">หน่วย *</label>
-            <div className="flex gap-2">
-              <select
-                value={formData.unit}
-                onChange={(e) => setFormData({...formData, unit: e.target.value})}
-                className={`input flex-1 ${errors.unit ? 'input-error' : ''}`}
-              >
-                <option value="">เลือกหน่วย</option>
-                {units.map((unit) => (
-                  <option key={unit} value={unit}>{unit}</option>
-                ))}
-              </select>
+            <select
+              value={units.includes(formData.unit) ? formData.unit : 'other'}
+              onChange={(e) => {
+                if (e.target.value === 'other') {
+                  setFormData({...formData, unit: ''});
+                } else {
+                  setFormData({...formData, unit: e.target.value});
+                }
+              }}
+              className={`input ${errors.unit ? 'input-error' : ''}`}
+            >
+              <option value="">เลือกหน่วย</option>
+              {units.map((unit) => (
+                <option key={unit} value={unit}>{unit}</option>
+              ))}
+              <option value="other">อื่นๆ (ระบุเอง)</option>
+            </select>
+            
+            {/* Show custom input if "other" is selected */}
+            {!units.includes(formData.unit) && formData.unit !== '' && (
               <input
                 type="text"
                 value={formData.unit}
                 onChange={(e) => setFormData({...formData, unit: e.target.value})}
-                className={`input flex-1 ${errors.unit ? 'input-error' : ''}`}
-                placeholder="หรือพิมพ์เอง"
+                className={`input mt-2 ${errors.unit ? 'input-error' : ''}`}
+                placeholder="ระบุหน่วยอื่นๆ"
+                autoFocus
               />
-            </div>
+            )}
+            
             {errors.unit && (
               <p className="mt-1 text-sm text-red-400">{errors.unit}</p>
             )}
+          </div>
+
+          {/* Min Stock Level */}
+          <div>
+            <label className="label">จำนวนขั้นต่ำ *</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={formData.minStockLevel}
+                onChange={(e) => setFormData({...formData, minStockLevel: parseInt(e.target.value) || 0})}
+                className={`input flex-1 ${errors.minStockLevel ? 'input-error' : ''}`}
+                placeholder="50"
+                min="0"
+                step="1"
+              />
+              <span className="text-gray-400">{formData.unit}</span>
+            </div>
+            {errors.minStockLevel && (
+              <p className="mt-1 text-sm text-red-400">{errors.minStockLevel}</p>
+            )}
+            <p className="mt-1 text-xs text-gray-500">
+              ระบบจะแจ้งเตือนเมื่อวัตถุดิบเหลือน้อยกว่าจำนวนนี้
+            </p>
           </div>
 
           {/* Active Status */}

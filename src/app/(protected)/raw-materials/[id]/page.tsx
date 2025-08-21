@@ -1,4 +1,4 @@
-// src/app/(protected)/raw-materials/[id]/page.tsx
+// Path: src/app/(protected)/raw-materials/[id]/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -53,6 +53,7 @@ export default function RawMaterialFormPage() {
         id: materialDoc.id,
         name: data.name,
         unit: data.unit || 'kg',
+        minStockLevel: data.minStockLevel || 50,
         imageUrl: data.imageUrl,
         isActive: data.isActive !== false,
         createdAt: data.createdAt?.toDate() || new Date(),
