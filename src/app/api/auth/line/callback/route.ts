@@ -1,4 +1,4 @@
-// Path: app/api/auth/line/callback/route.ts
+// Path: src/app/api/auth/line/callback/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
@@ -145,16 +145,24 @@ export async function GET(request: NextRequest) {
     if (!userDoc.exists) {
       console.log('New user, checking invitation...');
       
-      // Check if there's a valid invitation
-      if (state && state !== 'normal_login') {
+      // Check if there's a valid invitation using state parameter
+      if (state && state !== 'normal_login' && state !== 'joolz_factory_login') {
         const inviteSnap = await adminDb.collection('invitations')
           .where('token', '==', state)
           .where('status', '==', 'pending')
+          .limit(1)
           .get();
 
         if (!inviteSnap.empty) {
           const invite = inviteSnap.docs[0];
           const inviteData = invite.data();
+          
+          // Check if invitation is expired
+          const expiresAt = inviteData.expiresAt?.toDate() || new Date();
+          if (new Date() > expiresAt) {
+            console.log('Invitation expired');
+            return NextResponse.redirect(new URL('/login?error=invitation_expired', request.url));
+          }
           
           console.log('Valid invitation found:', inviteData.role);
 
@@ -162,10 +170,13 @@ export async function GET(request: NextRequest) {
           await adminDb.collection('users').doc(profile.userId).set({
             uid: profile.userId,
             email: `${profile.userId}@line.user`,
+            name: profile.displayName,
             displayName: profile.displayName,
             photoURL: profile.pictureUrl || null,
+            pictureUrl: profile.pictureUrl || null,
             role: inviteData.role,
             provider: 'line',
+            lineId: profile.userId,
             createdAt: new Date(),
             updatedAt: new Date(),
             isActive: true,
@@ -174,17 +185,18 @@ export async function GET(request: NextRequest) {
           // Update invitation status
           await invite.ref.update({
             status: 'used',
+            used: true,
             usedBy: profile.userId,
             usedAt: new Date(),
           });
 
           console.log('User created with role:', inviteData.role);
         } else {
-          console.log('No valid invitation found, redirecting to login');
-          return NextResponse.redirect(new URL('/login?error=no_invitation', request.url));
+          console.log('No valid invitation found for token:', state);
+          return NextResponse.redirect(new URL('/login?error=invalid_invitation', request.url));
         }
       } else {
-        console.log('No invitation token, redirecting to login');
+        console.log('No invitation token provided');
         return NextResponse.redirect(new URL('/login?error=no_invitation', request.url));
       }
     } else {
@@ -194,6 +206,8 @@ export async function GET(request: NextRequest) {
       await userDoc.ref.update({
         displayName: profile.displayName,
         photoURL: profile.pictureUrl || null,
+        pictureUrl: profile.pictureUrl || null,
+        lastLogin: new Date(),
         updatedAt: new Date(),
       });
     }
@@ -206,7 +220,7 @@ export async function GET(request: NextRequest) {
     const redirectUrl = new URL('/line-success', request.url);
     redirectUrl.searchParams.set('token', customToken);
     
-    console.log('Redirecting to /auth/line-success with token');
+    console.log('Redirecting to /line-success with token');
     return NextResponse.redirect(redirectUrl);
 
   } catch (error) {

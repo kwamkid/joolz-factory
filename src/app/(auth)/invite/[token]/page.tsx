@@ -1,4 +1,4 @@
-// src/app/(auth)/invite/[token]/page.tsx
+// Path: src/app/(auth)/invite/[token]/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -13,10 +13,12 @@ import {
 
 interface InviteData {
   id: string;
+  token: string;
   role: 'admin' | 'manager' | 'operation';
   createdByName: string;
   expiresAt: Date;
   used: boolean;
+  status: string;
 }
 
 export default function InvitePage() {
@@ -55,7 +57,7 @@ export default function InvitePage() {
       const data = inviteDoc.data();
       
       // Check if already used
-      if (data.used) {
+      if (data.status === 'used' || data.used) {
         setError('ลิงก์นี้ถูกใช้งานแล้ว');
         return;
       }
@@ -69,15 +71,18 @@ export default function InvitePage() {
 
       setInviteData({
         id: inviteDoc.id,
+        token: token,
         role: data.role,
         createdByName: data.createdByName,
         expiresAt,
-        used: false
+        used: false,
+        status: data.status || 'pending'
       });
 
-      // Store invite ID in sessionStorage for after LINE login
+      // Store invite info in sessionStorage for after LINE login
       sessionStorage.setItem('pendingInviteId', inviteDoc.id);
       sessionStorage.setItem('pendingInviteRole', data.role);
+      sessionStorage.setItem('pendingInviteToken', token);
 
     } catch (error) {
       console.error('Error checking invite:', error);
@@ -88,9 +93,26 @@ export default function InvitePage() {
   };
 
   const handleLineLogin = () => {
-    // Redirect to LINE OAuth with invite state
-    const lineUrl = getLineLoginUrl();
-    window.location.href = `${lineUrl}&state=invite_${token}`;
+    // Build LINE login URL with invite token as state
+    const clientId = process.env.NEXT_PUBLIC_LINE_CLIENT_ID;
+    const callbackUrl = process.env.NEXT_PUBLIC_LINE_CALLBACK_URL || 'http://localhost:3000/api/auth/line/callback';
+    
+    if (!clientId) {
+      console.error('LINE Client ID not found');
+      setError('ไม่พบการตั้งค่า LINE Login');
+      return;
+    }
+    
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: callbackUrl,
+      state: token, // ส่ง invite token เป็น state
+      scope: 'profile openid'
+    });
+
+    const lineUrl = `https://access.line.me/oauth2/v2.1/authorize?${params.toString()}`;
+    window.location.href = lineUrl;
   };
 
   const getRoleName = (role: string) => {
