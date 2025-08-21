@@ -1,4 +1,4 @@
-// src/app/(protected)/inventory/page.tsx
+// Path: src/app/(protected)/inventory/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { InventoryBatch } from '@/types/inventory';
+import { ResponsiveTable, TableColumn, TableBadge, TableActions, formatDate } from '@/components/ui/ResponsiveTable';
 
 export default function InventoryPage() {
   const router = useRouter();
@@ -24,13 +25,13 @@ export default function InventoryPage() {
   const [materialFilter, setMaterialFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [allMaterials, setAllMaterials] = useState<string[]>([]);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   // Summary stats
   const [stats, setStats] = useState({
     totalValue: 0,
     totalItems: 0,
-    lowStockItems: 0,
-    expiringItems: 0
+    lowStockItems: 0
   });
 
   // Check permission
@@ -84,19 +85,11 @@ export default function InventoryPage() {
     );
     const active = inventory.filter(item => item.remainingQuantity > 0);
     const lowStock = active.filter(item => item.remainingQuantity < 10);
-    
-    // Check expiring (within 7 days)
-    const sevenDaysFromNow = new Date();
-    sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
-    const expiring = active.filter(item => 
-      item.expiryDate && new Date(item.expiryDate) <= sevenDaysFromNow
-    );
 
     setStats({
       totalValue: value,
       totalItems: active.length,
-      lowStockItems: lowStock.length,
-      expiringItems: expiring.length
+      lowStockItems: lowStock.length
     });
   }, [inventory]);
 
@@ -161,18 +154,18 @@ export default function InventoryPage() {
 
   const getStatusBadge = (item: InventoryBatch) => {
     if (item.isFinished) {
-      return <span className="px-2 py-1 bg-gray-900/30 text-gray-400 text-xs rounded-full">หมด</span>;
+      return <TableBadge variant="default">หมด</TableBadge>;
     }
     if (item.status === 'damaged') {
-      return <span className="px-2 py-1 bg-red-900/30 text-red-400 text-xs rounded-full">เสียหาย</span>;
+      return <TableBadge variant="error">เสียหาย</TableBadge>;
     }
     if (item.status === 'expired') {
-      return <span className="px-2 py-1 bg-orange-900/30 text-orange-400 text-xs rounded-full">หมดอายุ</span>;
+      return <TableBadge variant="warning">หมดอายุ</TableBadge>;
     }
     if (item.remainingQuantity < 10) {
-      return <span className="px-2 py-1 bg-yellow-900/30 text-yellow-400 text-xs rounded-full">ใกล้หมด</span>;
+      return <TableBadge variant="warning">ใกล้หมด</TableBadge>;
     }
-    return <span className="px-2 py-1 bg-green-900/30 text-green-400 text-xs rounded-full">พร้อมใช้</span>;
+    return <TableBadge variant="success">พร้อมใช้</TableBadge>;
   };
 
   const isExpiringSoon = (expiryDate?: Date) => {
@@ -186,72 +179,255 @@ export default function InventoryPage() {
     return new Date() > expiryDate;
   };
 
-  if (loading) {
-    return (
-      <div className="page-content">
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-            <p className="mt-4 text-gray-400">กำลังโหลดข้อมูล...</p>
+  // Define table columns
+  const columns: TableColumn<InventoryBatch>[] = [
+    {
+      key: 'batchId',
+      header: 'Batch ID',
+      accessor: (item) => <p className="font-mono text-base text-white">{item.batchId}</p>,
+      mobilePriority: 1,
+      mobileLabel: 'Batch ID'
+    },
+    {
+      key: 'materialType',
+      header: 'วัตถุดิบ',
+      accessor: (item) => <p className="font-medium text-base text-white">{item.materialType}</p>,
+      mobilePriority: 2,
+      mobileLabel: 'วัตถุดิบ'
+    },
+    {
+      key: 'supplier',
+      header: 'ซัพพลายเออร์',
+      accessor: (item) => (
+        <div>
+          <p className="text-base text-white">{item.supplier.name}</p>
+          <p className="text-sm text-gray-400">⭐ {item.supplier.rating.toFixed(1)}</p>
+        </div>
+      ),
+      mobilePriority: 4,
+      mobileLabel: 'ซัพพลายเออร์'
+    },
+    {
+      key: 'remaining',
+      header: 'คงเหลือ',
+      accessor: (item) => (
+        <div>
+          <p className="text-base text-white font-medium">
+            {item.remainingQuantity.toFixed(1)} / {item.quantity.toFixed(1)} kg
+          </p>
+          <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1">
+            <div 
+              className={`h-1.5 rounded-full transition-all ${
+                item.remainingQuantity === 0 ? 'bg-gray-500' :
+                item.remainingQuantity < 10 ? 'bg-yellow-500' :
+                'bg-green-500'
+              }`}
+              style={{ width: `${(item.remainingQuantity / item.quantity) * 100}%` }}
+            />
           </div>
         </div>
+      ),
+      align: 'center',
+      mobilePriority: 3,
+      mobileLabel: 'คงเหลือ'
+    },
+    {
+      key: 'cost',
+      header: 'ต้นทุน',
+      accessor: (item) => (
+        <div>
+          <p className="text-base text-white">{formatCurrency(item.pricePerUnit)}/kg</p>
+          <p className="text-sm text-gray-400">
+            รวม: {formatCurrency(item.remainingQuantity * item.pricePerUnit)}
+          </p>
+        </div>
+      ),
+      align: 'right',
+      mobilePriority: 5,
+      mobileLabel: 'ต้นทุน'
+    },
+    {
+      key: 'purchaseDate',
+      header: 'วันที่ซื้อ',
+      accessor: (item) => (
+        <p className="text-base text-white">{formatDate(item.purchaseDate)}</p>
+      ),
+      align: 'center',
+      hideOnMobile: true
+    },
+    {
+      key: 'status',
+      header: 'สถานะ',
+      accessor: (item) => getStatusBadge(item),
+      align: 'center',
+      mobilePriority: 7
+    },
+    {
+      key: 'actions',
+      header: 'จัดการ',
+      accessor: (item) => (
+        <TableActions>
+          <button
+            onClick={() => router.push(`/inventory/${item.id}`)}
+            className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+            title="ดูรายละเอียด"
+          >
+            <Package className="h-4 w-4" />
+          </button>
+          {currentUser?.role !== 'operation' && !item.isFinished && (
+            <button
+              onClick={() => router.push(`/inventory/purchase/${item.id}`)}
+              className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+              title="แก้ไข"
+            >
+              <Edit className="h-4 w-4" />
+            </button>
+          )}
+        </TableActions>
+      ),
+      align: 'center',
+      hideOnMobile: true
+    }
+  ];
+
+  // Custom mobile card renderer
+  const renderMobileCard = (item: InventoryBatch) => (
+    <div className="card">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1">
+          <p className="font-mono text-sm font-semibold text-white">{item.batchId}</p>
+          <p className="text-lg font-medium text-white mt-1">{item.materialType}</p>
+        </div>
+        {getStatusBadge(item)}
       </div>
-    );
-  }
+      
+      <div className="space-y-3">
+        {/* Remaining Stock */}
+        <div>
+          <p className="text-sm text-gray-400 mb-1">คงเหลือ</p>
+          <p className="text-white font-medium">
+            {item.remainingQuantity.toFixed(1)} / {item.quantity.toFixed(1)} kg
+          </p>
+          <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1">
+            <div 
+              className={`h-1.5 rounded-full transition-all ${
+                item.remainingQuantity === 0 ? 'bg-gray-500' :
+                item.remainingQuantity < 10 ? 'bg-yellow-500' :
+                'bg-green-500'
+              }`}
+              style={{ width: `${(item.remainingQuantity / item.quantity) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Supplier & Cost */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-sm text-gray-400">ซัพพลายเออร์</p>
+            <p className="text-white">{item.supplier.name}</p>
+            <p className="text-xs text-gray-400">⭐ {item.supplier.rating.toFixed(1)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-400">ต้นทุน</p>
+            <p className="text-white">{formatCurrency(item.pricePerUnit)}/kg</p>
+            <p className="text-xs text-gray-400">
+              รวม: {formatCurrency(item.remainingQuantity * item.pricePerUnit)}
+            </p>
+          </div>
+        </div>
+
+        {/* Date */}
+        <div className="text-sm">
+          <p className="text-gray-400">วันที่ซื้อ</p>
+          <p className="text-white">{formatDate(item.purchaseDate)}</p>
+        </div>
+      </div>
+      
+      <div className="flex gap-2 mt-4">
+        <button
+          onClick={() => router.push(`/inventory/${item.id}`)}
+          className="btn btn-ghost btn-sm flex-1"
+        >
+          ดูรายละเอียด
+        </button>
+        {currentUser?.role !== 'operation' && !item.isFinished && (
+          <button
+            onClick={() => router.push(`/inventory/purchase/${item.id}`)}
+            className="btn btn-ghost btn-sm"
+          >
+            <Edit className="h-4 w-4" />
+            แก้ไข
+          </button>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="page-content">
       {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-2xl font-bold text-white">คลังวัตถุดิบ</h1>
-          <div className="flex gap-3">
+      <div className="mb-6 sm:mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-white">คลังวัตถุดิบ</h1>
+          <div className="flex gap-2 sm:gap-3">
             <button
               onClick={() => router.push('/inventory/purchase')}
-              className="btn btn-primary"
+              className="btn btn-primary flex-1 sm:flex-initial"
             >
               <ShoppingCart className="h-4 w-4" />
-              ซื้อของเข้า
+              <span className="hidden sm:inline">ซื้อของเข้า</span>
+              <span className="sm:hidden">ซื้อเข้า</span>
             </button>
             <button
               onClick={() => router.push('/inventory/damage')}
-              className="btn bg-red-600 hover:bg-red-700 text-white"
+              className="btn bg-red-600 hover:bg-red-700 text-white flex-1 sm:flex-initial"
             >
               <Trash2 className="h-4 w-4" />
-              ตัดของเสีย
+              <span className="hidden sm:inline">ตัดของเสีย</span>
+              <span className="sm:hidden">ตัดเสีย</span>
             </button>
           </div>
         </div>
         <p className="text-gray-400">จัดการวัตถุดิบและติดตามสต็อกคงเหลือ</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
-        <div className="card text-center">
-          <DollarSign className="h-8 w-8 text-primary mx-auto mb-2" />
-          <p className="text-2xl font-bold text-white">{formatCurrency(stats.totalValue)}</p>
-          <p className="text-sm text-gray-400">มูลค่ารวม</p>
+      {/* Stats - Responsive Grid */}
+      <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-6">
+        <div className="card text-center p-4 sm:p-6">
+          <DollarSign className="h-6 w-6 sm:h-8 sm:w-8 text-primary mx-auto mb-2" />
+          <p className="text-lg sm:text-2xl font-bold text-white">{formatCurrency(stats.totalValue)}</p>
+          <p className="text-xs sm:text-sm text-gray-400">มูลค่ารวม</p>
         </div>
-        <div className="card text-center">
-          <Package className="h-8 w-8 text-green-400 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-white">{stats.totalItems}</p>
-          <p className="text-sm text-gray-400">รายการที่ใช้ได้</p>
+        <div className="card text-center p-4 sm:p-6">
+          <Package className="h-6 w-6 sm:h-8 sm:w-8 text-green-400 mx-auto mb-2" />
+          <p className="text-lg sm:text-2xl font-bold text-white">{stats.totalItems}</p>
+          <p className="text-xs sm:text-sm text-gray-400">รายการที่ใช้ได้</p>
         </div>
-        <div className="card text-center">
-          <TrendingDown className="h-8 w-8 text-yellow-400 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-white">{stats.lowStockItems}</p>
-          <p className="text-sm text-gray-400">ใกล้หมด</p>
-        </div>
-        <div className="card text-center">
-          <AlertTriangle className="h-8 w-8 text-red-400 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-white">{stats.expiringItems}</p>
-          <p className="text-sm text-gray-400">ใกล้หมดอายุ</p>
+        <div className="card text-center p-4 sm:p-6">
+          <TrendingDown className="h-6 w-6 sm:h-8 sm:w-8 text-yellow-400 mx-auto mb-2" />
+          <p className="text-lg sm:text-2xl font-bold text-white">{stats.lowStockItems}</p>
+          <p className="text-xs sm:text-sm text-gray-400">ใกล้หมด</p>
         </div>
       </div>
 
       {/* Filters */}
       <div className="card mb-6">
-        <div className="flex flex-col sm:flex-row gap-4">
+        {/* Mobile Filter Toggle */}
+        <div className="block sm:hidden mb-4">
+          <button
+            onClick={() => setShowMobileFilters(!showMobileFilters)}
+            className="btn btn-ghost w-full flex items-center justify-between"
+          >
+            <span className="flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              ตัวกรอง
+            </span>
+            <ChevronDown className={`h-4 w-4 transition-transform ${showMobileFilters ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+
+        {/* Filters Content */}
+        <div className={`${showMobileFilters ? 'block' : 'hidden'} sm:block space-y-4 sm:space-y-0 sm:flex sm:gap-4`}>
           {/* Search */}
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
@@ -259,7 +435,7 @@ export default function InventoryPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ค้นหาวัตถุดิบ, ซัพพลายเออร์, เลขที่ใบเสร็จ..."
+              placeholder="ค้นหาวัตถุดิบ, ซัพพลายเออร์..."
               className="input pl-10"
             />
           </div>
@@ -292,135 +468,17 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Inventory Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-700">
-                <th className="text-left p-4 text-sm font-medium text-gray-400">Batch ID</th>
-                <th className="text-left p-4 text-sm font-medium text-gray-400">วัตถุดิบ</th>
-                <th className="text-left p-4 text-sm font-medium text-gray-400">ซัพพลายเออร์</th>
-                <th className="text-center p-4 text-sm font-medium text-gray-400">คงเหลือ</th>
-                <th className="text-right p-4 text-sm font-medium text-gray-400">ต้นทุน</th>
-                <th className="text-center p-4 text-sm font-medium text-gray-400">วันที่ซื้อ</th>
-                <th className="text-center p-4 text-sm font-medium text-gray-400">หมดอายุ</th>
-                <th className="text-center p-4 text-sm font-medium text-gray-400">สถานะ</th>
-                <th className="text-center p-4 text-sm font-medium text-gray-400">จัดการ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredInventory.map((item) => (
-                <tr key={item.id} className="border-b border-gray-700 hover:bg-gray-800/50">
-                  {/* Batch ID */}
-                  <td className="p-4">
-                    <p className="font-mono text-sm text-white">{item.batchId}</p>
-                  </td>
-
-                  {/* Material */}
-                  <td className="p-4">
-                    <p className="font-medium text-white">{item.materialType}</p>
-                  </td>
-
-                  {/* Supplier */}
-                  <td className="p-4">
-                    <p className="text-white">{item.supplier.name}</p>
-                    <p className="text-xs text-gray-400">⭐ {item.supplier.rating.toFixed(1)}</p>
-                  </td>
-
-                  {/* Remaining */}
-                  <td className="p-4 text-center">
-                    <p className="text-white font-medium">
-                      {item.remainingQuantity.toFixed(1)} / {item.quantity.toFixed(1)} kg
-                    </p>
-                    <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1">
-                      <div 
-                        className={`h-1.5 rounded-full transition-all ${
-                          item.remainingQuantity === 0 ? 'bg-gray-500' :
-                          item.remainingQuantity < 10 ? 'bg-yellow-500' :
-                          'bg-green-500'
-                        }`}
-                        style={{ width: `${(item.remainingQuantity / item.quantity) * 100}%` }}
-                      />
-                    </div>
-                  </td>
-
-                  {/* Cost */}
-                  <td className="p-4 text-right">
-                    <p className="text-white">{formatCurrency(item.pricePerUnit)}/kg</p>
-                    <p className="text-xs text-gray-400">
-                      รวม: {formatCurrency(item.remainingQuantity * item.pricePerUnit)}
-                    </p>
-                  </td>
-
-                  {/* Purchase Date */}
-                  <td className="p-4 text-center">
-                    <p className="text-sm text-white">
-                      {new Date(item.purchaseDate).toLocaleDateString('th-TH')}
-                    </p>
-                  </td>
-
-                  {/* Expiry Date */}
-                  <td className="p-4 text-center">
-                    {item.expiryDate ? (
-                      <div>
-                        <p className={`text-sm ${
-                          isExpired(item.expiryDate) ? 'text-red-400' :
-                          isExpiringSoon(item.expiryDate) ? 'text-yellow-400' :
-                          'text-white'
-                        }`}>
-                          {new Date(item.expiryDate).toLocaleDateString('th-TH')}
-                        </p>
-                        {isExpiringSoon(item.expiryDate) && (
-                          <p className="text-xs text-yellow-400">
-                            อีก {Math.ceil((item.expiryDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} วัน
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-gray-500">-</span>
-                    )}
-                  </td>
-
-                  {/* Status */}
-                  <td className="p-4 text-center">
-                    {getStatusBadge(item)}
-                  </td>
-
-                  {/* Actions */}
-                  <td className="p-4">
-                    <div className="flex items-center justify-center gap-1">
-                      <button
-                        onClick={() => router.push(`/inventory/${item.id}`)}
-                        className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
-                        title="ดูรายละเอียด"
-                      >
-                        <Package className="h-4 w-4" />
-                      </button>
-                      {/* Edit button - only for manager and admin */}
-                      {currentUser?.role !== 'operation' && !item.isFinished && (
-                        <button
-                          onClick={() => router.push(`/inventory/purchase/${item.id}`)}
-                          className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
-                          title="แก้ไข"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {filteredInventory.length === 0 && (
-          <div className="text-center py-12">
-            <Package className="h-12 w-12 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400">ไม่พบข้อมูลวัตถุดิบ</p>
-          </div>
-        )}
+      {/* ResponsiveTable */}
+      <div className="card">
+        <ResponsiveTable
+          data={filteredInventory}
+          columns={columns}
+          keyExtractor={(item) => item.id}
+          loading={loading}
+          emptyMessage="ไม่พบข้อมูลวัตถุดิบ"
+          emptyIcon={<Package className="h-12 w-12 text-gray-600 mx-auto" />}
+          mobileRenderCard={renderMobileCard}
+        />
       </div>
     </div>
   );

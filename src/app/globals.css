@@ -1,4 +1,4 @@
-/* src/app/globals.css */
+/* Path: src/app/globals.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -78,9 +78,9 @@
 
 /* Component Styles */
 @layer components {
-  /* Buttons */
+  /* Buttons - ขนาดใหญ่ขึ้นสำหรับมือถือ */
   .btn {
-    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply px-5 py-3 rounded-lg font-medium transition-all duration-200 inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-base sm:text-lg min-h-[48px];
   }
 
   .btn-primary {
@@ -100,25 +100,25 @@
   }
 
   .btn-lg {
-    @apply px-6 py-3 text-lg;
+    @apply px-6 py-4 text-lg sm:text-xl min-h-[56px];
   }
 
   .btn-sm {
-    @apply px-3 py-1.5 text-sm;
+    @apply px-4 py-2 text-base min-h-[40px];
   }
 
   /* Cards */
   .card {
-    @apply bg-gray-800 rounded-xl p-6 border border-gray-700;
+    @apply bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-700;
   }
 
   .card-hover {
     @apply hover:border-primary hover:shadow-lg transition-all duration-200;
   }
 
-  /* Inputs */
+  /* Inputs - ขนาดใหญ่ขึ้นสำหรับมือถือ */
   .input {
-    @apply w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200;
+    @apply w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200 text-base sm:text-lg min-h-[48px];
   }
 
   .input-error {
@@ -127,12 +127,12 @@
 
   /* Labels */
   .label {
-    @apply block text-sm font-medium text-gray-300 mb-2;
+    @apply block text-base sm:text-lg font-medium text-gray-300 mb-2;
   }
 
   /* Sidebar */
   .sidebar-item {
-    @apply flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 cursor-pointer;
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 cursor-pointer text-base sm:text-lg min-h-[48px];
   }
 
   .sidebar-item:hover {
@@ -168,11 +168,42 @@
   }
 
   .stat-value {
-    @apply text-3xl font-bold text-primary mb-1;
+    @apply text-2xl sm:text-3xl font-bold text-primary mb-1;
   }
 
   .stat-label {
-    @apply text-sm text-gray-400;
+    @apply text-base sm:text-lg text-gray-400;
+  }
+
+  /* Typography for better readability */
+  h1 {
+    @apply text-2xl sm:text-3xl lg:text-4xl font-bold;
+  }
+
+  h2 {
+    @apply text-xl sm:text-2xl lg:text-3xl font-semibold;
+  }
+
+  h3 {
+    @apply text-lg sm:text-xl lg:text-2xl font-semibold;
+  }
+
+  h4 {
+    @apply text-base sm:text-lg lg:text-xl font-medium;
+  }
+
+  p {
+    @apply text-base sm:text-lg;
+  }
+
+  /* List Items - ขนาดใหญ่ขึ้นสำหรับ touch */
+  .list-item {
+    @apply min-h-[56px] py-3 px-4;
+  }
+
+  /* Touch targets */
+  .touch-target {
+    @apply min-w-[44px] min-h-[44px] flex items-center justify-center;
   }
 }
 
@@ -244,14 +275,23 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
-}
 
-/* Responsive Font Sizes */
-@media (max-width: 640px) {
-  html {
-    font-size: 14px;
+  /* Mobile Font Size Helpers */
+  .text-mobile-lg {
+    @apply text-lg sm:text-xl;
+  }
+
+  .text-mobile-base {
+    @apply text-base sm:text-lg;
+  }
+
+  .text-mobile-sm {
+    @apply text-sm sm:text-base;
   }
 }
+
+/* Remove font size reduction on mobile - ลบออกแล้ว */
+/* ไม่ลดขนาด font บนมือถือ */
 
 /* Print Styles */
 @media print {

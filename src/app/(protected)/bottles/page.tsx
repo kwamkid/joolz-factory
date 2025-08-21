@@ -1,4 +1,4 @@
-// src/app/(protected)/bottles/page.tsx
+// Path: src/app/(protected)/bottles/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -9,10 +9,11 @@ import { db } from '@/lib/firebase';
 import { 
   FlaskConical, Plus, Search, Edit, Trash2, 
   Package, AlertCircle, TrendingUp, TrendingDown,
-  History, MoreVertical
+  History, MoreVertical, ChevronDown, Filter
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { BottleType } from '@/types/bottle';
+import { ResponsiveTable, TableColumn, TableBadge, TableActions } from '@/components/ui/ResponsiveTable';
 
 export default function BottlesPage() {
   const router = useRouter();
@@ -21,7 +22,8 @@ export default function BottlesPage() {
   const [filteredBottles, setFilteredBottles] = useState<BottleType[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showDropdown, setShowDropdown] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   // Check permission
   useEffect(() => {
@@ -46,8 +48,14 @@ export default function BottlesPage() {
       );
     }
 
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(bottle => 
+        statusFilter === 'active' ? bottle.isActive : !bottle.isActive
+      );
+    }
+
     setFilteredBottles(filtered);
-  }, [searchQuery, bottles]);
+  }, [searchQuery, statusFilter, bottles]);
 
   const fetchBottles = async () => {
     try {
@@ -118,11 +126,11 @@ export default function BottlesPage() {
     const percentage = min > 0 ? (current / min) * 100 : 100;
     
     if (percentage <= 25) {
-      return { color: 'text-red-400', bg: 'bg-red-900/20', label: 'วิกฤต' };
+      return { color: 'text-red-400', bg: 'bg-red-900/20', label: 'วิกฤต', variant: 'error' as const };
     } else if (percentage <= 50) {
-      return { color: 'text-yellow-400', bg: 'bg-yellow-900/20', label: 'ต่ำ' };
+      return { color: 'text-yellow-400', bg: 'bg-yellow-900/20', label: 'ต่ำ', variant: 'warning' as const };
     } else {
-      return { color: 'text-green-400', bg: 'bg-green-900/20', label: 'ปกติ' };
+      return { color: 'text-green-400', bg: 'bg-green-900/20', label: 'ปกติ', variant: 'success' as const };
     }
   };
 
@@ -134,215 +142,332 @@ export default function BottlesPage() {
     }).format(amount);
   };
 
-  if (loading) {
-    return (
-      <div className="page-content">
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-            <p className="mt-4 text-gray-400">กำลังโหลดข้อมูล...</p>
+  // Define table columns
+  const columns: TableColumn<BottleType>[] = [
+    {
+      key: 'name',
+      header: 'ขวด',
+      accessor: (item) => (
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 bg-gray-800 rounded-lg flex items-center justify-center flex-shrink-0">
+            {item.imageUrl ? (
+              <img 
+                src={item.imageUrl} 
+                alt={item.name}
+                className="h-10 w-10 object-contain"
+              />
+            ) : (
+              <FlaskConical className="h-6 w-6 text-gray-600" />
+            )}
           </div>
+          <div>
+            <p className="font-medium text-base text-white">{item.name}</p>
+          </div>
+        </div>
+      ),
+      mobilePriority: 1,
+      mobileLabel: 'ขวด'
+    },
+    {
+      key: 'size',
+      header: 'ขนาด',
+      accessor: (item) => <p className="text-base text-white">{item.sizeInMl} ml</p>,
+      mobilePriority: 2,
+      mobileLabel: 'ขนาด'
+    },
+    {
+      key: 'price',
+      header: 'ราคา',
+      accessor: (item) => <p className="text-base text-white">{formatCurrency(item.pricePerUnit)}</p>,
+      align: 'right',
+      mobilePriority: 3,
+      mobileLabel: 'ราคา'
+    },
+    {
+      key: 'stock',
+      header: 'สต็อก',
+      accessor: (item) => (
+        <div className="text-center">
+          <p className="text-base text-white font-medium">{item.currentStock.toLocaleString()}</p>
+          <p className="text-sm text-gray-400">/ {(item.minStockLevel || 0).toLocaleString()}</p>
+        </div>
+      ),
+      align: 'center',
+      mobilePriority: 4,
+      mobileLabel: 'สต็อก'
+    },
+    {
+      key: 'stockStatus',
+      header: 'สถานะสต็อก',
+      accessor: (item) => {
+        const stockStatus = getStockStatus(item.currentStock, item.minStockLevel || 0);
+        return (
+          <div>
+            <TableBadge variant={stockStatus.variant}>{stockStatus.label}</TableBadge>
+            <div className="w-full bg-gray-700 rounded-full h-1.5 mt-2">
+              <div 
+                className={`h-1.5 rounded-full transition-all ${
+                  stockStatus.label === 'วิกฤต' ? 'bg-red-500' :
+                  stockStatus.label === 'ต่ำ' ? 'bg-yellow-500' :
+                  'bg-green-500'
+                }`}
+                style={{ 
+                  width: `${Math.min(100, item.minStockLevel ? (item.currentStock / item.minStockLevel) * 100 : 0)}%` 
+                }}
+              />
+            </div>
+          </div>
+        );
+      },
+      align: 'center',
+      mobilePriority: 5,
+      mobileLabel: 'สถานะ'
+    },
+    {
+      key: 'isActive',
+      header: 'การใช้งาน',
+      accessor: (item) => (
+        <button
+          onClick={() => handleToggleActive(item.id, item.isActive)}
+          className={`px-3 py-1 text-sm rounded-full transition-colors ${
+            item.isActive 
+              ? 'bg-green-900/30 text-green-400 hover:bg-green-900/50' 
+              : 'bg-gray-900/30 text-gray-400 hover:bg-gray-900/50'
+          }`}
+        >
+          {item.isActive ? 'เปิด' : 'ปิด'}
+        </button>
+      ),
+      align: 'center',
+      hideOnMobile: true
+    },
+    {
+      key: 'actions',
+      header: 'จัดการ',
+      accessor: (item) => (
+        <TableActions>
+          <button
+            onClick={() => router.push(`/bottles/${item.id}/stock`)}
+            className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+            title="จัดการสต็อก"
+          >
+            <Package className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => router.push(`/bottles/${item.id}`)}
+            className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+            title="แก้ไข"
+          >
+            <Edit className="h-4 w-4" />
+          </button>
+          {currentUser?.role === 'admin' && (
+            <button
+              onClick={() => handleDelete(item.id, item.name)}
+              className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
+              title="ลบ"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+        </TableActions>
+      ),
+      align: 'center',
+      hideOnMobile: true
+    }
+  ];
+
+  // Custom mobile card renderer
+  const renderMobileCard = (bottle: BottleType) => {
+    const stockStatus = getStockStatus(bottle.currentStock, bottle.minStockLevel || 0);
+    
+    return (
+      <div className="card">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 bg-gray-800 rounded-lg flex items-center justify-center flex-shrink-0">
+              {bottle.imageUrl ? (
+                <img 
+                  src={bottle.imageUrl} 
+                  alt={bottle.name}
+                  className="h-10 w-10 object-contain"
+                />
+              ) : (
+                <FlaskConical className="h-6 w-6 text-gray-600" />
+              )}
+            </div>
+            <div>
+              <p className="font-medium text-lg text-white">{bottle.name}</p>
+              <p className="text-sm text-gray-400">{bottle.sizeInMl} ml</p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleToggleActive(bottle.id, bottle.isActive)}
+            className={`px-3 py-1 text-sm rounded-full transition-colors ${
+              bottle.isActive 
+                ? 'bg-green-900/30 text-green-400 hover:bg-green-900/50' 
+                : 'bg-gray-900/30 text-gray-400 hover:bg-gray-900/50'
+            }`}
+          >
+            {bottle.isActive ? 'เปิด' : 'ปิด'}
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {/* Price */}
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-400">ราคา</span>
+            <span className="text-white font-medium">{formatCurrency(bottle.pricePerUnit)}</span>
+          </div>
+
+          {/* Stock */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm text-gray-400">สต็อก</span>
+              <span className="text-white font-medium">
+                {bottle.currentStock.toLocaleString()} / {(bottle.minStockLevel || 0).toLocaleString()}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <div className="w-full bg-gray-700 rounded-full h-1.5">
+                  <div 
+                    className={`h-1.5 rounded-full transition-all ${
+                      stockStatus.label === 'วิกฤต' ? 'bg-red-500' :
+                      stockStatus.label === 'ต่ำ' ? 'bg-yellow-500' :
+                      'bg-green-500'
+                    }`}
+                    style={{ 
+                      width: `${Math.min(100, bottle.minStockLevel ? (bottle.currentStock / bottle.minStockLevel) * 100 : 0)}%` 
+                    }}
+                  />
+                </div>
+              </div>
+              <TableBadge variant={stockStatus.variant}>{stockStatus.label}</TableBadge>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={() => router.push(`/bottles/${bottle.id}/stock`)}
+            className="btn btn-ghost btn-sm flex-1"
+          >
+            <Package className="h-4 w-4" />
+            จัดการสต็อก
+          </button>
+          <button
+            onClick={() => router.push(`/bottles/${bottle.id}`)}
+            className="btn btn-ghost btn-sm"
+          >
+            <Edit className="h-4 w-4" />
+            แก้ไข
+          </button>
         </div>
       </div>
     );
-  }
+  };
 
   return (
     <div className="page-content">
       {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-2xl font-bold text-white">จัดการขวด</h1>
+      <div className="mb-6 sm:mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-white">จัดการขวด</h1>
           <button
             onClick={() => router.push('/bottles/new')}
-            className="btn btn-primary"
+            className="btn btn-primary w-full sm:w-auto"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-5 w-5" />
             เพิ่มขวดใหม่
           </button>
         </div>
         <p className="text-gray-400">จัดการประเภทขวดและราคา</p>
       </div>
 
-      {/* Search */}
-      <div className="card mb-6">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="ค้นหาขนาดขวด..."
-            className="input pl-10"
-          />
+      {/* Stats - Responsive Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+        <div className="card text-center p-4 sm:p-6">
+          <FlaskConical className="h-6 w-6 sm:h-8 sm:w-8 text-primary mx-auto mb-2" />
+          <p className="text-lg sm:text-2xl font-bold text-white">{bottles.length}</p>
+          <p className="text-xs sm:text-sm text-gray-400">ประเภททั้งหมด</p>
         </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
-        <div className="card text-center">
-          <FlaskConical className="h-8 w-8 text-primary mx-auto mb-2" />
-          <p className="text-2xl font-bold text-white">{bottles.length}</p>
-          <p className="text-sm text-gray-400">ประเภททั้งหมด</p>
-        </div>
-        <div className="card text-center">
-          <Package className="h-8 w-8 text-green-400 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-white">
+        <div className="card text-center p-4 sm:p-6">
+          <Package className="h-6 w-6 sm:h-8 sm:w-8 text-green-400 mx-auto mb-2" />
+          <p className="text-lg sm:text-2xl font-bold text-white">
             {bottles.filter(b => b.isActive).length}
           </p>
-          <p className="text-sm text-gray-400">ใช้งานอยู่</p>
+          <p className="text-xs sm:text-sm text-gray-400">ใช้งานอยู่</p>
         </div>
-        <div className="card text-center">
-          <AlertCircle className="h-8 w-8 text-red-400 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-white">
+        <div className="card text-center p-4 sm:p-6">
+          <AlertCircle className="h-6 w-6 sm:h-8 sm:w-8 text-red-400 mx-auto mb-2" />
+          <p className="text-lg sm:text-2xl font-bold text-white">
             {bottles.filter(b => b.currentStock < (b.minStockLevel || 0)).length}
           </p>
-          <p className="text-sm text-gray-400">สต็อกต่ำ</p>
+          <p className="text-xs sm:text-sm text-gray-400">สต็อกต่ำ</p>
         </div>
-        <div className="card text-center">
-          <TrendingUp className="h-8 w-8 text-blue-400 mx-auto mb-2" />
-          <p className="text-2xl font-bold text-white">
+        <div className="card text-center p-4 sm:p-6">
+          <TrendingUp className="h-6 w-6 sm:h-8 sm:w-8 text-blue-400 mx-auto mb-2" />
+          <p className="text-lg sm:text-2xl font-bold text-white">
             {bottles.reduce((sum, b) => sum + b.currentStock, 0).toLocaleString()}
           </p>
-          <p className="text-sm text-gray-400">ขวดทั้งหมด</p>
+          <p className="text-xs sm:text-sm text-gray-400">ขวดทั้งหมด</p>
         </div>
       </div>
 
-      {/* Bottles Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-700">
-                <th className="text-left p-4 text-sm font-medium text-gray-400">ขวด</th>
-                <th className="text-left p-4 text-sm font-medium text-gray-400">ขนาด</th>
-                <th className="text-right p-4 text-sm font-medium text-gray-400">ราคา</th>
-                <th className="text-center p-4 text-sm font-medium text-gray-400">สต็อก</th>
-                <th className="text-center p-4 text-sm font-medium text-gray-400">สถานะสต็อก</th>
-                <th className="text-center p-4 text-sm font-medium text-gray-400">การใช้งาน</th>
-                <th className="text-center p-4 text-sm font-medium text-gray-400">จัดการ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredBottles.map((bottle) => {
-                const stockStatus = getStockStatus(bottle.currentStock, bottle.minStockLevel || 0);
-                
-                return (
-                  <tr key={bottle.id} className="border-b border-gray-700 hover:bg-gray-800/50">
-                    {/* Bottle Name with Image */}
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-12 w-12 bg-gray-800 rounded-lg flex items-center justify-center flex-shrink-0">
-                          {bottle.imageUrl ? (
-                            <img 
-                              src={bottle.imageUrl} 
-                              alt={bottle.name}
-                              className="h-10 w-10 object-contain"
-                            />
-                          ) : (
-                            <FlaskConical className="h-6 w-6 text-gray-600" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium text-white">{bottle.name}</p>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Size */}
-                    <td className="p-4">
-                      <p className="text-white">{bottle.sizeInMl} ml</p>
-                    </td>
-
-                    {/* Price */}
-                    <td className="p-4 text-right">
-                      <p className="text-white">{formatCurrency(bottle.pricePerUnit)}</p>
-                    </td>
-
-                    {/* Stock */}
-                    <td className="p-4">
-                      <div className="text-center">
-                        <p className="text-white font-medium">{bottle.currentStock.toLocaleString()}</p>
-                        <p className="text-xs text-gray-400">/ {(bottle.minStockLevel || 0).toLocaleString()}</p>
-                      </div>
-                    </td>
-
-                    {/* Stock Status */}
-                    <td className="p-4">
-                      <div className="flex justify-center">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium ${stockStatus.bg} ${stockStatus.color} rounded-full`}>
-                          {stockStatus.label}
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-700 rounded-full h-1.5 mt-2">
-                        <div 
-                          className={`h-1.5 rounded-full transition-all ${
-                            stockStatus.label === 'วิกฤต' ? 'bg-red-500' :
-                            stockStatus.label === 'ต่ำ' ? 'bg-yellow-500' :
-                            'bg-green-500'
-                          }`}
-                          style={{ 
-                            width: `${Math.min(100, bottle.minStockLevel ? (bottle.currentStock / bottle.minStockLevel) * 100 : 0)}%` 
-                          }}
-                        />
-                      </div>
-                    </td>
-
-                    {/* Active Status */}
-                    <td className="p-4 text-center">
-                      <button
-                        onClick={() => handleToggleActive(bottle.id, bottle.isActive)}
-                        className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                          bottle.isActive 
-                            ? 'bg-green-900/30 text-green-400 hover:bg-green-900/50' 
-                            : 'bg-gray-900/30 text-gray-400 hover:bg-gray-900/50'
-                        }`}
-                      >
-                        {bottle.isActive ? 'เปิด' : 'ปิด'}
-                      </button>
-                    </td>
-
-                    {/* Actions */}
-                    <td className="p-4">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => router.push(`/bottles/${bottle.id}/stock`)}
-                          className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
-                          title="จัดการสต็อก"
-                        >
-                          <Package className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => router.push(`/bottles/${bottle.id}`)}
-                          className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
-                          title="แก้ไข"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
-                        {currentUser?.role === 'admin' && (
-                          <button
-                            onClick={() => handleDelete(bottle.id, bottle.name)}
-                            className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
-                            title="ลบ"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* Filters */}
+      <div className="card mb-6">
+        {/* Mobile Filter Toggle */}
+        <div className="block sm:hidden mb-4">
+          <button
+            onClick={() => setShowMobileFilters(!showMobileFilters)}
+            className="btn btn-ghost w-full flex items-center justify-between"
+          >
+            <span className="flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              ตัวกรอง
+            </span>
+            <ChevronDown className={`h-4 w-4 transition-transform ${showMobileFilters ? 'rotate-180' : ''}`} />
+          </button>
         </div>
 
-        {filteredBottles.length === 0 && (
-          <div className="text-center py-12">
-            <FlaskConical className="h-12 w-12 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400">ไม่พบข้อมูลขวด</p>
+        {/* Filters Content */}
+        <div className={`${showMobileFilters ? 'block' : 'hidden'} sm:block space-y-4 sm:space-y-0 sm:flex sm:gap-4`}>
+          {/* Search */}
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="ค้นหาขนาดขวด..."
+              className="input pl-10"
+            />
           </div>
-        )}
+
+          {/* Status Filter */}
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as any)}
+            className="input"
+          >
+            <option value="all">ทั้งหมด</option>
+            <option value="active">ใช้งานอยู่</option>
+            <option value="inactive">ปิดการใช้งาน</option>
+          </select>
+        </div>
+      </div>
+
+      {/* ResponsiveTable */}
+      <div className="card">
+        <ResponsiveTable
+          data={filteredBottles}
+          columns={columns}
+          keyExtractor={(item) => item.id}
+          loading={loading}
+          emptyMessage="ไม่พบข้อมูลขวด"
+          emptyIcon={<FlaskConical className="h-12 w-12 text-gray-600 mx-auto" />}
+          mobileRenderCard={renderMobileCard}
+        />
       </div>
     </div>
   );
