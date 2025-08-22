@@ -1,4 +1,4 @@
-// src/components/products/ProductForm.tsx
+// Path: src/components/products/ProductForm.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -98,6 +98,7 @@ export default function ProductForm({
           id: doc.id,
           name: data.name,
           unit: data.unit || 'kg',
+          minStockLevel: data.minStockLevel || 50,
           imageUrl: data.imageUrl,
           isActive: data.isActive,
           createdAt: data.createdAt?.toDate() || new Date(),
