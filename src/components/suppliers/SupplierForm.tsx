@@ -110,6 +110,7 @@ export default function SupplierForm({
           id: doc.id,
           name: data.name,
           unit: data.unit || 'kg',
+          minStockLevel: data.minStockLevel || 50,  // เพิ่มบรรทัดนี้
           imageUrl: data.imageUrl,
           isActive: data.isActive,
           createdAt: data.createdAt?.toDate() || new Date(),
@@ -128,6 +129,7 @@ export default function SupplierForm({
           id: `default-${index}`,
           name,
           unit: 'kg',
+          minStockLevel: 50,  // เพิ่มบรรทัดนี้
           isActive: true,
           createdAt: new Date()
         })));
