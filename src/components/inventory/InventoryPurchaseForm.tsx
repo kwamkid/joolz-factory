@@ -1,4 +1,4 @@
-// src/components/inventory/InventoryPurchaseForm.tsx
+// Path: src/components/inventory/InventoryPurchaseForm.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -89,6 +89,7 @@ export default function InventoryPurchaseForm({
           id: doc.id,
           name: data.name,
           unit: data.unit || 'kg',
+          minStockLevel: data.minStockLevel || 50,
           imageUrl: data.imageUrl,
           isActive: data.isActive,
           createdAt: data.createdAt?.toDate() || new Date(),
@@ -107,6 +108,7 @@ export default function InventoryPurchaseForm({
         id: `default-${index}`,
         name,
         unit: 'kg',
+        minStockLevel: 50,
         isActive: true,
         createdAt: new Date()
       })));
