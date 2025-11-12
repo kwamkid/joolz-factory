@@ -1,0 +1,316 @@
+// Path: src/components/layout/Sidebar.tsx
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
+import {
+  Home,
+  Factory,
+  Package,
+  Users,
+  Beaker,
+  Droplets,
+  Leaf,
+  UserCircle,
+  ShoppingCart,
+  DollarSign,
+  BarChart3,
+  Settings,
+  Menu,
+  X,
+  ChevronRight,
+  LogOut
+} from 'lucide-react';
+
+// Menu item interface
+interface MenuItem {
+  label: string;
+  href: string;
+  icon: React.ReactNode;
+  roles: string[];
+  badge?: number;
+}
+
+// Menu items configuration
+const menuItems: MenuItem[] = [
+  // Common
+  {
+    label: 'Dashboard',
+    href: '/dashboard',
+    icon: <Home className="w-5 h-5" />,
+    roles: ['admin', 'manager', 'operation', 'sales']
+  },
+  
+  // Production Section
+  {
+    label: 'การผลิต',
+    href: '/production',
+    icon: <Factory className="w-5 h-5" />,
+    roles: ['admin', 'manager', 'operation']
+  },
+  {
+    label: 'จัดการสต็อก',
+    href: '/inventory',
+    icon: <Package className="w-5 h-5" />,
+    roles: ['admin', 'manager']
+  },
+  {
+    label: 'ซัพพลายเออร์',
+    href: '/suppliers',
+    icon: <Users className="w-5 h-5" />,
+    roles: ['admin', 'manager']
+  },
+  {
+    label: 'จัดการขวด',
+    href: '/bottles',
+    icon: <Beaker className="w-5 h-5" />,
+    roles: ['admin', 'manager']
+  },
+  {
+    label: 'จัดการวัตถุดิบ',
+    href: '/raw-materials',
+    icon: <Leaf className="w-5 h-5" />,
+    roles: ['admin', 'manager']
+  },
+  
+  // Sales Section
+  {
+    label: 'ลูกค้า (CRM)',
+    href: '/customers',
+    icon: <UserCircle className="w-5 h-5" />,
+    roles: ['admin', 'sales']
+  },
+  {
+    label: 'คำสั่งซื้อ',
+    href: '/orders',
+    icon: <ShoppingCart className="w-5 h-5" />,
+    roles: ['admin', 'sales']
+  },
+  {
+    label: 'ยอดขาย',
+    href: '/sales',
+    icon: <DollarSign className="w-5 h-5" />,
+    roles: ['admin', 'sales']
+  },
+  
+  // Reports
+  {
+    label: 'รายงาน',
+    href: '/reports',
+    icon: <BarChart3 className="w-5 h-5" />,
+    roles: ['admin', 'manager', 'sales']
+  },
+  
+  // Admin
+  {
+    label: 'จัดการผู้ใช้',
+    href: '/users',
+    icon: <Settings className="w-5 h-5" />,
+    roles: ['admin']
+  }
+];
+
+export default function Sidebar() {
+  const [isOpen, setIsOpen] = useState(false);
+  const pathname = usePathname();
+  const { userProfile, signOut } = useAuth();
+
+  // Close sidebar on route change (mobile)
+  useEffect(() => {
+    const handleRouteChange = () => {
+      if (window.innerWidth < 1024) {
+        setIsOpen(false);
+      }
+    };
+    
+    handleRouteChange();
+  }, [pathname]);
+
+  // Filter menu items based on user role
+  const filteredMenuItems = menuItems.filter(item => 
+    userProfile && item.roles.includes(userProfile.role)
+  );
+
+  // Group menu items by section
+  const productionItems = filteredMenuItems.filter(item => 
+    ['/production', '/inventory', '/suppliers', '/bottles', '/raw-materials'].includes(item.href)
+  );
+  
+  const salesItems = filteredMenuItems.filter(item => 
+    ['/customers', '/orders', '/sales'].includes(item.href)
+  );
+  
+  const otherItems = filteredMenuItems.filter(item => 
+    ![...productionItems, ...salesItems].includes(item)
+  );
+
+  return (
+    <>
+      {/* Mobile Menu Button */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-[#00231F] border border-[#E9B308]/20 rounded-lg"
+      >
+        {isOpen ? (
+          <X className="w-6 h-6 text-[#E9B308]" />
+        ) : (
+          <Menu className="w-6 h-6 text-[#E9B308]" />
+        )}
+      </button>
+
+      {/* Overlay for mobile */}
+      {isOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/50 z-40"
+          onClick={() => setIsOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-[#00231F] border-r border-[#E9B308]/20 transform transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
+        <div className="flex flex-col h-full">
+          {/* Logo */}
+          <div className="flex items-center justify-center h-16 border-b border-[#E9B308]/20">
+            <h1 className="text-2xl font-bold text-[#E9B308]">
+              JOOLZ<span className="text-white">Factory</span>
+            </h1>
+          </div>
+
+          {/* User Info */}
+          {userProfile && (
+            <div className="p-4 border-b border-[#E9B308]/20">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-[#E9B308]/20 rounded-full flex items-center justify-center">
+                  <span className="text-[#E9B308] font-semibold">
+                    {userProfile.name.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-white text-sm font-medium">
+                    {userProfile.name}
+                  </p>
+                  <p className="text-[#E9B308] text-xs">
+                    {userProfile.role === 'admin' && 'ผู้ดูแลระบบ'}
+                    {userProfile.role === 'manager' && 'ผู้จัดการ'}
+                    {userProfile.role === 'operation' && 'พนักงานผลิต'}
+                    {userProfile.role === 'sales' && 'ฝ่ายขาย'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Navigation */}
+          <nav className="flex-1 overflow-y-auto p-4">
+            {/* Dashboard */}
+            {otherItems.filter(item => item.href === '/dashboard').map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-2 transition-colors ${
+                  pathname === item.href
+                    ? 'bg-[#E9B308] text-[#00231F]'
+                    : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+                }`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.label}</span>
+                {item.badge && (
+                  <span className="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                    {item.badge}
+                  </span>
+                )}
+              </Link>
+            ))}
+
+            {/* Production Section */}
+            {productionItems.length > 0 && (
+              <>
+                <h3 className="text-xs text-gray-500 uppercase tracking-wider mt-6 mb-2">
+                  ระบบการผลิต
+                </h3>
+                {productionItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-1 transition-colors ${
+                      pathname === item.href
+                        ? 'bg-[#E9B308] text-[#00231F]'
+                        : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="font-medium">{item.label}</span>
+                  </Link>
+                ))}
+              </>
+            )}
+
+            {/* Sales Section */}
+            {salesItems.length > 0 && (
+              <>
+                <h3 className="text-xs text-gray-500 uppercase tracking-wider mt-6 mb-2">
+                  ระบบการขาย
+                </h3>
+                {salesItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-1 transition-colors ${
+                      pathname === item.href
+                        ? 'bg-[#E9B308] text-[#00231F]'
+                        : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="font-medium">{item.label}</span>
+                  </Link>
+                ))}
+              </>
+            )}
+
+            {/* Other Items */}
+            {otherItems.filter(item => item.href !== '/dashboard').length > 0 && (
+              <>
+                <h3 className="text-xs text-gray-500 uppercase tracking-wider mt-6 mb-2">
+                  อื่นๆ
+                </h3>
+                {otherItems.filter(item => item.href !== '/dashboard').map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-1 transition-colors ${
+                      pathname === item.href
+                        ? 'bg-[#E9B308] text-[#00231F]'
+                        : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="font-medium">{item.label}</span>
+                  </Link>
+                ))}
+              </>
+            )}
+          </nav>
+
+          {/* Logout Button */}
+          <div className="p-4 border-t border-[#E9B308]/20">
+            <button
+              onClick={() => signOut()}
+              className="flex items-center space-x-3 w-full px-3 py-2 text-gray-300 hover:bg-red-500/10 hover:text-red-500 rounded-lg transition-colors"
+            >
+              <LogOut className="w-5 h-5" />
+              <span className="font-medium">ออกจากระบบ</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+    </>
+  );
+}
