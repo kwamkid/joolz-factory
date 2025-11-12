@@ -1,4 +1,4 @@
-// Path: src/lib/auth-context.tsx
+// Path: lib/auth-context.tsx
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
@@ -25,32 +25,18 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Public routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/auth/callback', '/line-callback'];
 
-// Role-based route permissions
-const ROUTE_PERMISSIONS: Record<string, string[]> = {
-  '/dashboard': ['admin', 'manager', 'operation', 'sales'],
-  '/production': ['admin', 'manager', 'operation'],
-  '/inventory': ['admin', 'manager'],
-  '/suppliers': ['admin', 'manager'],
-  '/raw-materials': ['admin', 'manager'],
-  '/bottles': ['admin', 'manager'],
-  '/customers': ['admin', 'sales'],
-  '/orders': ['admin', 'sales'],
-  '/sales': ['admin', 'sales'],
-  '/reports': ['admin', 'manager', 'sales'],
-  '/users': ['admin'],
-};
-
 // Auth Provider Component
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
   // Fetch user profile from database
-  const fetchUserProfile = async (userId: string) => {
+  const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
     try {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -58,105 +44,101 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('id', userId)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return null;
+      }
       
       if (data) {
-        setUserProfile(data as UserProfile);
-        return data as UserProfile;
+        const profile: UserProfile = {
+          ...data,
+          isActive: data.is_active,
+          createdAt: new Date(data.created_at),
+          updatedAt: new Date(data.updated_at)
+        };
+        return profile;
       }
       return null;
     } catch (error) {
-      console.error('Error fetching user profile:', error);
+      console.error('Unexpected error:', error);
       return null;
     }
   };
 
-  // Check route permission based on user role
-  const checkRoutePermission = (path: string, role: string): boolean => {
-    // Find matching route pattern
-    const routeKey = Object.keys(ROUTE_PERMISSIONS).find(key => 
-      path.startsWith(key)
-    );
-    
-    if (!routeKey) return true; // Allow if no specific permission required
-    
-    return ROUTE_PERMISSIONS[routeKey].includes(role);
-  };
-
-  // Mock user profile for testing (ลบออกเมื่อใช้งานจริง)
-  const mockUserProfile: UserProfile = {
-    id: 'test-user',
-    email: 'admin@joolz.factory',
-    name: 'ผู้ดูแลระบบ',
-    role: 'admin', // เปลี่ยนเป็น 'manager', 'operation', 'sales' เพื่อทดสอบ role อื่น
-    isActive: true,
-    createdAt: new Date(),
-    updatedAt: new Date()
-  };
-
-  // Initialize auth state
+  // Initialize auth
   useEffect(() => {
+    if (initialized) return;
+    
     const initAuth = async () => {
       try {
-        // FOR TESTING: ใช้ mock user
-        setUserProfile(mockUserProfile);
-        setLoading(false);
-        return;
-        
-        // PRODUCTION CODE (uncomment เมื่อใช้งานจริง)
-        /*
-        // Get initial session
         const { data: { session: initialSession } } = await supabase.auth.getSession();
         
-        if (initialSession) {
+        if (initialSession?.user) {
           setSession(initialSession);
           setUser(initialSession.user);
           
-          // Fetch user profile
           const profile = await fetchUserProfile(initialSession.user.id);
-          
-          // Check route permission
-          if (profile && !PUBLIC_ROUTES.includes(pathname)) {
-            if (!checkRoutePermission(pathname, profile.role)) {
-              // Redirect to dashboard if no permission
-              router.push('/dashboard');
-            }
+          if (profile) {
+            setUserProfile(profile);
           }
-        } else if (!PUBLIC_ROUTES.includes(pathname)) {
-          // Redirect to login if not authenticated
-          router.push('/login');
         }
-        */
       } catch (error) {
-        console.error('Auth initialization error:', error);
+        console.error('Init error:', error);
       } finally {
-        // setLoading(false); // comment out for testing
+        setLoading(false);
+        setInitialized(true);
       }
     };
 
     initAuth();
+  }, [initialized]);
 
-    // Subscribe to auth changes
+  // Handle auth state changes
+  useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event: string, currentSession: Session | null) => {
-        setSession(currentSession);
-        setUser(currentSession?.user || null);
+      async (event, currentSession) => {
+        console.log('Auth event:', event);
         
         if (event === 'SIGNED_IN' && currentSession) {
-          // Fetch user profile on sign in
-          await fetchUserProfile(currentSession.user.id);
-          router.push('/dashboard');
+          setSession(currentSession);
+          setUser(currentSession.user);
+          
+          const profile = await fetchUserProfile(currentSession.user.id);
+          if (profile) {
+            setUserProfile(profile);
+          }
         } else if (event === 'SIGNED_OUT') {
+          setUser(null);
           setUserProfile(null);
-          router.push('/login');
+          setSession(null);
         }
+        
+        setLoading(false);
       }
     );
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [pathname, router]);
+  }, []);
+
+  // Handle routing based on auth state
+  useEffect(() => {
+    // ถ้ายังโหลดอยู่ ไม่ต้อง redirect
+    if (loading || !initialized) return;
+
+    // ถ้า login แล้วและอยู่หน้า login ให้ไป dashboard
+    if (user && userProfile && pathname === '/login') {
+      router.push('/dashboard');
+      return;
+    }
+
+    // ถ้าไม่ได้ login และอยู่หน้า protected ให้ไป login
+    if (!user && !PUBLIC_ROUTES.includes(pathname) && pathname !== '/') {
+      router.push('/login');
+      return;
+    }
+  }, [user, userProfile, pathname, loading, initialized, router]);
 
   // Sign in with email/password
   const signIn = async (email: string, password: string) => {
@@ -167,11 +149,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (error) {
+        if (error.message.includes('Invalid login credentials')) {
+          return { error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' };
+        }
         return { error: error.message };
-      }
-
-      if (data.user) {
-        await fetchUserProfile(data.user.id);
       }
 
       return { error: null };
@@ -185,7 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithLine = async () => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google', // เปลี่ยนเป็น LINE provider เมื่อ setup แล้ว
+        provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
         },
@@ -197,7 +178,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       return { error: null };
     } catch (error) {
-      console.error('LINE sign in error:', error);
       return { error: 'เกิดข้อผิดพลาดในการเข้าสู่ระบบด้วย LINE' };
     }
   };
@@ -206,9 +186,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     try {
       await supabase.auth.signOut();
-      setUser(null);
-      setUserProfile(null);
-      setSession(null);
+      router.push('/login');
     } catch (error) {
       console.error('Sign out error:', error);
     }
@@ -217,7 +195,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Refresh user profile
   const refreshProfile = async () => {
     if (user) {
-      await fetchUserProfile(user.id);
+      const profile = await fetchUserProfile(user.id);
+      if (profile) {
+        setUserProfile(profile);
+      }
     }
   };
 
@@ -226,7 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     userProfile,
     session,
-    loading,
+    loading: loading || !initialized,
     signIn,
     signInWithLine,
     signOut,
@@ -247,58 +228,4 @@ export function useAuth() {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-}
-
-// HOC for protecting routes
-export function withAuth<P extends object>(
-  Component: React.ComponentType<P>,
-  allowedRoles?: string[]
-) {
-  return function ProtectedComponent(props: P) {
-    const { userProfile, loading } = useAuth();
-    const router = useRouter();
-
-    useEffect(() => {
-      if (!loading) {
-        if (!userProfile) {
-          router.push('/login');
-        } else if (allowedRoles && !allowedRoles.includes(userProfile.role)) {
-          router.push('/dashboard');
-        }
-      }
-    }, [userProfile, loading, router]);
-
-    if (loading) {
-      return (
-        <div className="flex items-center justify-center min-h-screen bg-[#00231F]">
-          <div className="text-center">
-            <div className="w-16 h-16 border-4 border-[#E9B308] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-white">กำลังโหลด...</p>
-          </div>
-        </div>
-      );
-    }
-
-    if (!userProfile) {
-      return null;
-    }
-
-    if (allowedRoles && !allowedRoles.includes(userProfile.role)) {
-      return (
-        <div className="flex items-center justify-center min-h-screen bg-[#00231F]">
-          <div className="text-center">
-            <p className="text-white text-xl mb-4">คุณไม่มีสิทธิ์เข้าถึงหน้านี้</p>
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 bg-[#E9B308] text-[#00231F] rounded-lg hover:bg-[#E9B308]/90"
-            >
-              กลับไปหน้า Dashboard
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    return <Component {...props} />;
-  };
 }

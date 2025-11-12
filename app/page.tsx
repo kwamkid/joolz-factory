@@ -1,16 +1,25 @@
-// Path: src/app/page.tsx
+// Path: app/page.tsx
 'use client';
 
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import { useAuth } from '@/lib/auth-context';
 
 export default function HomePage() {
   const router = useRouter();
+  const { user, loading } = useAuth();
 
   useEffect(() => {
-    // Redirect to dashboard for testing
-    router.push('/dashboard');
-  }, [router]);
+    if (!loading) {
+      // ถ้า login แล้วไป dashboard
+      // ถ้ายังไม่ login ไป login page
+      if (user) {
+        router.push('/dashboard');
+      } else {
+        router.push('/login');
+      }
+    }
+  }, [user, loading, router]);
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-[#00231F]">

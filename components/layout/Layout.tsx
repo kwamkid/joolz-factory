@@ -1,10 +1,9 @@
-// Path: src/components/layout/Layout.tsx
+// Path: components/layout/Layout.tsx
 'use client';
 
 import { ReactNode } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import { useAuth } from '@/lib/auth-context';
 
 interface LayoutProps {
   children: ReactNode;
@@ -16,20 +15,8 @@ interface LayoutProps {
 }
 
 export default function Layout({ children, title, breadcrumbs }: LayoutProps) {
-  const { loading } = useAuth();
-
-  // Show loading state
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#00231F]">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[#E9B308] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white">กำลังโหลด...</p>
-        </div>
-      </div>
-    );
-  }
-
+  // ไม่มี loading check ใดๆ - ให้ page component จัดการเอง
+  
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Sidebar */}
@@ -89,5 +76,4 @@ export default function Layout({ children, title, breadcrumbs }: LayoutProps) {
   );
 }
 
-// Export sub-components for flexibility
 export { Sidebar, Header };
