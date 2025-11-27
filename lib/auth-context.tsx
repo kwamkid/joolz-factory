@@ -31,119 +31,141 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [initialized, setInitialized] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
-  // Fetch user profile from database
-  const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
-    try {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error) {
-        console.error('Error fetching profile:', error);
-        return null;
-      }
-      
-      if (data) {
-        const profile: UserProfile = {
-          ...data,
-          isActive: data.is_active,
-          createdAt: new Date(data.created_at),
-          updatedAt: new Date(data.updated_at)
-        };
-        return profile;
-      }
-      return null;
-    } catch (error) {
-      console.error('Unexpected error:', error);
-      return null;
-    }
+  // Create mock profile from user data
+  const createMockProfile = (authUser: User): UserProfile => {
+    // ใช้ email เพื่อกำหนด role
+    const isAdmin = authUser.email === 'kwamkid@gmail.com';
+    
+    return {
+      id: authUser.id,
+      email: authUser.email || '',
+      name: authUser.email?.split('@')[0] || 'User',
+      role: isAdmin ? 'admin' : 'operation',
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
   };
 
-  // Initialize auth
+  // Initialize auth on mount
   useEffect(() => {
-    if (initialized) return;
-    
+    let mounted = true;
+
     const initAuth = async () => {
+      console.log('Initializing auth...');
+      
       try {
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        const { data: { session }, error } = await supabase.auth.getSession();
         
-        if (initialSession?.user) {
-          setSession(initialSession);
-          setUser(initialSession.user);
+        if (error) {
+          console.error('Session error:', error);
+          if (mounted) setLoading(false);
+          return;
+        }
+        
+        if (!mounted) return;
+
+        if (session?.user) {
+          console.log('Found user:', session.user.email);
+          setSession(session);
+          setUser(session.user);
           
-          const profile = await fetchUserProfile(initialSession.user.id);
-          if (profile) {
-            setUserProfile(profile);
-          }
+          // ใช้ mock profile แทนการ fetch
+          const mockProfile = createMockProfile(session.user);
+          setUserProfile(mockProfile);
+          console.log('Using mock profile:', mockProfile);
+        } else {
+          console.log('No session found');
         }
       } catch (error) {
         console.error('Init error:', error);
       } finally {
-        setLoading(false);
-        setInitialized(true);
+        if (mounted) {
+          setLoading(false);
+          console.log('Init complete');
+        }
       }
     };
 
+    // รันทันที ไม่ต้อง delay
     initAuth();
-  }, [initialized]);
 
-  // Handle auth state changes
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Listen to auth changes
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, currentSession) => {
+      (event, currentSession) => {
         console.log('Auth event:', event);
-        
+
+        // Skip initial session - already handled in initAuth
+        if (event === 'INITIAL_SESSION') return;
+
+        // Only handle actual sign in/out events, not token refresh
         if (event === 'SIGNED_IN' && currentSession) {
-          setSession(currentSession);
-          setUser(currentSession.user);
-          
-          const profile = await fetchUserProfile(currentSession.user.id);
-          if (profile) {
-            setUserProfile(profile);
-          }
+          // Check if user actually changed to prevent infinite loop
+          setSession(prev => {
+            if (prev?.user?.id === currentSession.user.id) {
+              return prev; // No change needed
+            }
+            return currentSession;
+          });
+
+          setUser(prev => {
+            if (prev?.id === currentSession.user.id) {
+              return prev; // No change needed
+            }
+            // Only update profile if user actually changed
+            const mockProfile = createMockProfile(currentSession.user);
+            setUserProfile(mockProfile);
+            return currentSession.user;
+          });
+
+          setLoading(false);
+
         } else if (event === 'SIGNED_OUT') {
           setUser(null);
           setUserProfile(null);
           setSession(null);
+          setLoading(false);
+          router.push('/login');
+        } else if (event === 'TOKEN_REFRESHED' && currentSession) {
+          // Only update session token, not trigger re-render of user/profile
+          setSession(currentSession);
         }
-        
-        setLoading(false);
       }
     );
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+    return () => subscription.unsubscribe();
+  }, [router]);
 
-  // Handle routing based on auth state
+  // Handle routing
   useEffect(() => {
-    // ถ้ายังโหลดอยู่ ไม่ต้อง redirect
-    if (loading || !initialized) return;
+    if (loading) return;
 
-    // ถ้า login แล้วและอยู่หน้า login ให้ไป dashboard
-    if (user && userProfile && pathname === '/login') {
+    // ถ้ามี user และอยู่หน้า login -> ไป dashboard
+    if (user && pathname === '/login') {
+      console.log('Redirecting to dashboard');
       router.push('/dashboard');
-      return;
     }
 
-    // ถ้าไม่ได้ login และอยู่หน้า protected ให้ไป login
+    // ถ้าไม่มี user และอยู่หน้า protected -> ไป login
     if (!user && !PUBLIC_ROUTES.includes(pathname) && pathname !== '/') {
+      console.log('Redirecting to login');
       router.push('/login');
-      return;
     }
-  }, [user, userProfile, pathname, loading, initialized, router]);
+  }, [user, pathname, loading, router]);
 
-  // Sign in with email/password
+  // Sign in
   const signIn = async (email: string, password: string) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -186,19 +208,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     try {
       await supabase.auth.signOut();
-      router.push('/login');
     } catch (error) {
       console.error('Sign out error:', error);
     }
   };
 
-  // Refresh user profile
+  // Refresh profile - แค่ใช้ mock
   const refreshProfile = async () => {
     if (user) {
-      const profile = await fetchUserProfile(user.id);
-      if (profile) {
-        setUserProfile(profile);
-      }
+      const mockProfile = createMockProfile(user);
+      setUserProfile(mockProfile);
     }
   };
 
@@ -207,7 +226,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     userProfile,
     session,
-    loading: loading || !initialized,
+    loading,
     signIn,
     signInWithLine,
     signOut,
@@ -221,7 +240,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Custom hook to use auth context
+// Custom hook
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {

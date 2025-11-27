@@ -10,7 +10,6 @@ import {
   Factory,
   Package,
   Users,
-  Beaker,
   Droplets,
   Leaf,
   UserCircle,
@@ -21,7 +20,14 @@ import {
   Menu,
   X,
   ChevronRight,
-  LogOut
+  LogOut,
+  Box,
+  ArrowUpDown,
+  FileText,
+  ClipboardList,
+  Boxes,
+  Package2,
+  Wine
 } from 'lucide-react';
 
 // Menu item interface
@@ -33,82 +39,115 @@ interface MenuItem {
   badge?: number;
 }
 
-// Menu items configuration
-const menuItems: MenuItem[] = [
-  // Common
+// Menu section interface
+interface MenuSection {
+  title: string;
+  items: MenuItem[];
+}
+
+// Menu sections configuration
+const menuSections: MenuSection[] = [
+  // Operation
   {
-    label: 'Dashboard',
-    href: '/dashboard',
-    icon: <Home className="w-5 h-5" />,
-    roles: ['admin', 'manager', 'operation', 'sales']
+    title: 'Operation',
+    items: [
+      {
+        label: 'การผลิต',
+        href: '/production',
+        icon: <Factory className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'operation']
+      }
+    ]
   },
-  
-  // Production Section
+  // Data Management - ข้อมูลหลักที่ key ครั้งเดียว
   {
-    label: 'การผลิต',
-    href: '/production',
-    icon: <Factory className="w-5 h-5" />,
-    roles: ['admin', 'manager', 'operation']
+    title: 'จัดการข้อมูล',
+    items: [
+      {
+        label: 'สินค้าผลิต',
+        href: '/products',
+        icon: <Box className="w-5 h-5" />,
+        roles: ['admin', 'manager']
+      },
+      {
+        label: 'ขวด',
+        href: '/bottles',
+        icon: <Wine className="w-5 h-5" />,
+        roles: ['admin', 'manager']
+      },
+      {
+        label: 'วัตถุดิบ',
+        href: '/raw-materials',
+        icon: <Leaf className="w-5 h-5" />,
+        roles: ['admin', 'manager']
+      },
+      {
+        label: 'ซัพพลายเออร์',
+        href: '/suppliers',
+        icon: <Users className="w-5 h-5" />,
+        roles: ['admin', 'manager']
+      }
+    ]
   },
+  // Stock Management - รวมสต็อกและธุรกรรมซื้อ-ออก
   {
-    label: 'จัดการสต็อก',
-    href: '/inventory',
-    icon: <Package className="w-5 h-5" />,
-    roles: ['admin', 'manager']
+    title: 'สต็อก และ ซื้อ-ออก',
+    items: [
+      {
+        label: 'สต็อกขวด / ซื้อ-ออก',
+        href: '/bottle-stock',
+        icon: <ArrowUpDown className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'operation']
+      },
+      {
+        label: 'สต็อกวัตถุดิบ / ซื้อ-ออก',
+        href: '/stock',
+        icon: <ArrowUpDown className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'operation']
+      }
+    ]
   },
+  // Sales System
   {
-    label: 'ซัพพลายเออร์',
-    href: '/suppliers',
-    icon: <Users className="w-5 h-5" />,
-    roles: ['admin', 'manager']
+    title: 'ระบบการขาย',
+    items: [
+      {
+        label: 'สินค้าพร้อมขาย',
+        href: '/sellable-products',
+        icon: <Package2 className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      },
+      {
+        label: 'ลูกค้า',
+        href: '/customers',
+        icon: <UserCircle className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      },
+      {
+        label: 'คำสั่งซื้อ',
+        href: '/orders',
+        icon: <ShoppingCart className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      }
+    ]
   },
-  {
-    label: 'จัดการขวด',
-    href: '/bottles',
-    icon: <Beaker className="w-5 h-5" />,
-    roles: ['admin', 'manager']
-  },
-  {
-    label: 'จัดการวัตถุดิบ',
-    href: '/raw-materials',
-    icon: <Leaf className="w-5 h-5" />,
-    roles: ['admin', 'manager']
-  },
-  
-  // Sales Section
-  {
-    label: 'ลูกค้า (CRM)',
-    href: '/customers',
-    icon: <UserCircle className="w-5 h-5" />,
-    roles: ['admin', 'sales']
-  },
-  {
-    label: 'คำสั่งซื้อ',
-    href: '/orders',
-    icon: <ShoppingCart className="w-5 h-5" />,
-    roles: ['admin', 'sales']
-  },
-  {
-    label: 'ยอดขาย',
-    href: '/sales',
-    icon: <DollarSign className="w-5 h-5" />,
-    roles: ['admin', 'sales']
-  },
-  
   // Reports
   {
-    label: 'รายงาน',
-    href: '/reports',
-    icon: <BarChart3 className="w-5 h-5" />,
-    roles: ['admin', 'manager', 'sales']
-  },
-  
-  // Admin
-  {
-    label: 'จัดการผู้ใช้',
-    href: '/users',
-    icon: <Settings className="w-5 h-5" />,
-    roles: ['admin']
+    title: 'รายงาน',
+    items: [
+      {
+        label: 'รายงานยอดขาย',
+        href: '/reports/sales',
+        icon: <BarChart3 className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      },
+      {
+        label: 'รายงานยอดค้าง',
+        href: '/reports/pending',
+        icon: <FileText className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      }
+    ]
   }
 ];
 
@@ -124,27 +163,19 @@ export default function Sidebar() {
         setIsOpen(false);
       }
     };
-    
+
     handleRouteChange();
   }, [pathname]);
 
-  // Filter menu items based on user role
-  const filteredMenuItems = menuItems.filter(item => 
-    userProfile && item.roles.includes(userProfile.role)
-  );
-
-  // Group menu items by section
-  const productionItems = filteredMenuItems.filter(item => 
-    ['/production', '/inventory', '/suppliers', '/bottles', '/raw-materials'].includes(item.href)
-  );
-  
-  const salesItems = filteredMenuItems.filter(item => 
-    ['/customers', '/orders', '/sales'].includes(item.href)
-  );
-  
-  const otherItems = filteredMenuItems.filter(item => 
-    ![...productionItems, ...salesItems].includes(item)
-  );
+  // Filter menu sections based on user role
+  const filteredSections = menuSections
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item =>
+        userProfile && item.roles.includes(userProfile.role)
+      )
+    }))
+    .filter(section => section.items.length > 0);
 
   return (
     <>
@@ -209,93 +240,64 @@ export default function Sidebar() {
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4">
             {/* Dashboard */}
-            {otherItems.filter(item => item.href === '/dashboard').map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-2 transition-colors ${
-                  pathname === item.href
-                    ? 'bg-[#E9B308] text-[#00231F]'
-                    : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
-                }`}
-              >
-                {item.icon}
-                <span className="font-medium">{item.label}</span>
-                {item.badge && (
-                  <span className="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
-                    {item.badge}
-                  </span>
-                )}
-              </Link>
+            <Link
+              href="/dashboard"
+              className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-2 transition-colors ${
+                pathname === '/dashboard'
+                  ? 'bg-[#E9B308] text-[#00231F]'
+                  : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+              }`}
+            >
+              <Home className="w-5 h-5" />
+              <span className="font-medium">Dashboard</span>
+            </Link>
+
+            {/* Menu Sections */}
+            {filteredSections.map((section, sectionIndex) => (
+              <div key={sectionIndex}>
+                <h3 className="text-xs text-gray-500 uppercase tracking-wider mt-6 mb-2">
+                  {section.title}
+                </h3>
+                {section.items.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-1 transition-colors ${
+                      pathname === item.href
+                        ? 'bg-[#E9B308] text-[#00231F]'
+                        : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="font-medium">{item.label}</span>
+                    {item.badge && (
+                      <span className="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                        {item.badge}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </div>
             ))}
 
-            {/* Production Section */}
-            {productionItems.length > 0 && (
-              <>
+            {/* Admin Section */}
+            {userProfile?.role === 'admin' && (
+              <div>
                 <h3 className="text-xs text-gray-500 uppercase tracking-wider mt-6 mb-2">
-                  ระบบการผลิต
+                  ผู้ดูแลระบบ
                 </h3>
-                {productionItems.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-1 transition-colors ${
-                      pathname === item.href
-                        ? 'bg-[#E9B308] text-[#00231F]'
-                        : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
-                    }`}
-                  >
-                    {item.icon}
-                    <span className="font-medium">{item.label}</span>
-                  </Link>
-                ))}
-              </>
-            )}
-
-            {/* Sales Section */}
-            {salesItems.length > 0 && (
-              <>
-                <h3 className="text-xs text-gray-500 uppercase tracking-wider mt-6 mb-2">
-                  ระบบการขาย
-                </h3>
-                {salesItems.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-1 transition-colors ${
-                      pathname === item.href
-                        ? 'bg-[#E9B308] text-[#00231F]'
-                        : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
-                    }`}
-                  >
-                    {item.icon}
-                    <span className="font-medium">{item.label}</span>
-                  </Link>
-                ))}
-              </>
-            )}
-
-            {/* Other Items */}
-            {otherItems.filter(item => item.href !== '/dashboard').length > 0 && (
-              <>
-                <h3 className="text-xs text-gray-500 uppercase tracking-wider mt-6 mb-2">
-                  อื่นๆ
-                </h3>
-                {otherItems.filter(item => item.href !== '/dashboard').map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-1 transition-colors ${
-                      pathname === item.href
-                        ? 'bg-[#E9B308] text-[#00231F]'
-                        : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
-                    }`}
-                  >
-                    {item.icon}
-                    <span className="font-medium">{item.label}</span>
-                  </Link>
-                ))}
-              </>
+                <Link
+                  href="/users"
+                  className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-1 transition-colors ${
+                    pathname === '/users'
+                      ? 'bg-[#E9B308] text-[#00231F]'
+                      : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+                  }`}
+                >
+                  <Settings className="w-5 h-5" />
+                  <span className="font-medium">จัดการผู้ใช้</span>
+                </Link>
+              </div>
             )}
           </nav>
 
