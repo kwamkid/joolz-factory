@@ -110,7 +110,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create production batch record
+    // Calculate total volume (in liters) from planned items
+    const bottleIds = validItems.map(item => item.bottle_type_id);
+    const { data: bottles } = await supabaseAdmin
+      .from('bottle_types')
+      .select('id, capacity_ml')
+      .in('id', bottleIds);
+
+    let totalVolumeLiters = 0;
+    for (const item of validItems) {
+      const bottle = bottles?.find(b => b.id === item.bottle_type_id);
+      if (bottle) {
+        totalVolumeLiters += (bottle.capacity_ml / 1000) * item.quantity;
+      }
+    }
+
+    // Check material availability
+    let insufficientMaterials = null;
+    let hasWarning = false;
+
+    try {
+      const { data: availabilityCheck, error: checkError } = await supabaseAdmin
+        .rpc('check_material_availability', {
+          p_product_id: planData.product_id,
+          p_total_volume_liters: totalVolumeLiters
+        });
+
+      if (!checkError && availabilityCheck && availabilityCheck.length > 0) {
+        const check = availabilityCheck[0];
+        if (!check.is_sufficient) {
+          insufficientMaterials = check.insufficient_materials;
+          hasWarning = true;
+        }
+      }
+    } catch (err) {
+      console.log('Material availability check error (function may not exist yet):', err);
+      // Continue without check if function doesn't exist
+    }
+
+    // Create production batch record (allow creation even if materials insufficient)
     const { data: batch, error: batchError } = await supabaseAdmin
       .from('production_batches')
       .insert({
@@ -122,6 +160,7 @@ export async function POST(request: NextRequest) {
         planned_by: userId,
         planned_at: new Date().toISOString(),
         status: 'planned',
+        insufficient_materials: insufficientMaterials,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
@@ -140,7 +179,11 @@ export async function POST(request: NextRequest) {
       success: true,
       id: batch.id,
       batch_id: batch.batch_id,
-      message: 'Production plan created successfully'
+      has_warning: hasWarning,
+      insufficient_materials: insufficientMaterials,
+      message: hasWarning
+        ? 'แผนการผลิตถูกสร้างแล้ว แต่วัตถุดิบไม่เพียงพอ กรุณาซื้อเพิ่ม'
+        : 'สร้างแผนการผลิตสำเร็จ'
     });
   } catch (error) {
     console.error('Server error:', error);

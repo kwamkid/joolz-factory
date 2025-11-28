@@ -154,9 +154,7 @@ export async function POST(request: NextRequest) {
         name: userData.name,
         role: userData.role,
         phone: userData.phone || null,
-        is_active: userData.is_active !== undefined ? userData.is_active : true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        is_active: userData.is_active !== undefined ? userData.is_active : true
       })
       .select()
       .single();

@@ -7,6 +7,8 @@ interface StockTransactionData {
   raw_material_id: string;
   transaction_type: 'in' | 'production' | 'damage';
   quantity: number;
+  unit_price?: number; // ราคาต่อหน่วย (สำหรับการซื้อเข้า)
+  total_price?: number; // ราคารวม (สำหรับการซื้อเข้า)
   notes?: string;
 }
 
@@ -74,6 +76,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate price fields for 'in' transaction
+    if (transactionData.transaction_type === 'in') {
+      if (!transactionData.unit_price || transactionData.unit_price <= 0) {
+        return NextResponse.json(
+          { error: 'กรุณาระบุราคาต่อหน่วยสำหรับการซื้อเข้า' },
+          { status: 400 }
+        );
+      }
+      // Calculate total_price if not provided
+      if (!transactionData.total_price) {
+        transactionData.total_price = transactionData.unit_price * transactionData.quantity;
+      }
+    }
+
     // Get current stock
     const { data: material, error: fetchError } = await supabaseAdmin
       .from('raw_materials')
@@ -103,6 +119,69 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Create transaction record first
+    const { data: transaction, error: transactionError } = await supabaseAdmin
+      .from('stock_transactions')
+      .insert({
+        raw_material_id: transactionData.raw_material_id,
+        transaction_type: transactionData.transaction_type,
+        quantity: transactionData.quantity,
+        unit_price: transactionData.unit_price || 0,
+        total_price: transactionData.total_price || 0,
+        notes: transactionData.notes || null,
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (transactionError) {
+      console.error('Transaction creation error:', transactionError);
+      return NextResponse.json(
+        { error: transactionError.message },
+        { status: 400 }
+      );
+    }
+
+    // Handle stock lot for 'in' transaction (FIFO)
+    if (transactionData.transaction_type === 'in') {
+      // Create a new stock lot
+      const { error: lotError } = await supabaseAdmin
+        .from('stock_lots')
+        .insert({
+          raw_material_id: transactionData.raw_material_id,
+          stock_transaction_id: transaction.id,
+          quantity_remaining: transactionData.quantity,
+          unit_price: transactionData.unit_price,
+          purchase_date: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+      if (lotError) {
+        console.error('Stock lot creation error:', lotError);
+        // Don't fail the transaction, just log the error
+      }
+    } else {
+      // For 'production' or 'damage', use FIFO to deduct from lots
+      try {
+        const { error: fifoError } = await supabaseAdmin.rpc('deduct_stock_fifo', {
+          p_raw_material_id: transactionData.raw_material_id,
+          p_quantity_to_deduct: transactionData.quantity,
+          p_stock_transaction_id: transaction.id,
+          p_production_batch_id: null
+        });
+
+        if (fifoError) {
+          console.error('FIFO deduction error:', fifoError);
+          // Don't fail if FIFO function doesn't exist yet
+          // (backward compatibility during migration)
+        }
+      } catch (err) {
+        console.error('FIFO function call error:', err);
+        // Continue even if function doesn't exist
+      }
+    }
+
     // Update stock
     const { error: updateError } = await supabaseAdmin
       .from('raw_materials')
@@ -120,30 +199,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create transaction record
-    const { data, error } = await supabaseAdmin
-      .from('stock_transactions')
-      .insert({
-        raw_material_id: transactionData.raw_material_id,
-        transaction_type: transactionData.transaction_type,
-        quantity: transactionData.quantity,
-        notes: transactionData.notes || null,
-        created_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Transaction creation error:', error);
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 }
-      );
-    }
-
     return NextResponse.json({
       success: true,
-      transaction: data,
+      transaction: transaction,
       new_stock: newStock
     });
   } catch (error) {

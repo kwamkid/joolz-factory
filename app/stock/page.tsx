@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { getImageUrl } from '@/lib/utils/image';
 
-// Raw Material with last transaction
+// Raw Material with last transaction and average prices
 interface RawMaterial {
   id: string;
   name: string;
@@ -37,6 +37,9 @@ interface RawMaterial {
     quantity: number;
     date: string;
   };
+  avg_price_30d?: number;
+  avg_price_3m?: number;
+  avg_price_1y?: number;
 }
 
 // Transaction interface
@@ -45,6 +48,8 @@ interface StockTransaction {
   raw_material_id: string;
   transaction_type: 'in' | 'production' | 'damage';
   quantity: number;
+  unit_price?: number;
+  total_price?: number;
   notes?: string;
   created_at: string;
   raw_materials?: {
@@ -74,13 +79,15 @@ export default function StockManagementPage() {
   const [transactionType, setTransactionType] = useState<TransactionType>(null);
   const [selectedMaterialId, setSelectedMaterialId] = useState('');
   const [quantity, setQuantity] = useState('');
+  const [unitPrice, setUnitPrice] = useState(''); // ราคาต่อหน่วย
+  const [totalPrice, setTotalPrice] = useState(''); // ราคารวม
   const [notes, setNotes] = useState('');
 
   // Filter state for history
   const [filterType, setFilterType] = useState<'all' | 'in' | 'production' | 'damage'>('all');
   const [filterMaterialId, setFilterMaterialId] = useState<string>('all');
 
-  // Fetch materials with last transaction
+  // Fetch materials with last transaction and average prices
   const fetchMaterials = useCallback(async () => {
     try {
       setLoading(true);
@@ -89,13 +96,20 @@ export default function StockManagementPage() {
       const { data: materialsData, error: materialsError } = await supabase
         .from('raw_materials')
         .select('id, name, unit, current_stock, min_stock, image')
-        .order('name', { ascending: true });
+        .order('current_stock', { ascending: false }); // Sort by stock descending
 
       if (materialsError) throw materialsError;
 
-      // Fetch last transaction for each material
-      const materialsWithLastTransaction = await Promise.all(
+      // Calculate date ranges
+      const now = new Date();
+      const date30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const date3m = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      const date1y = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+
+      // Fetch last transaction and average prices for each material
+      const materialsWithDetails = await Promise.all(
         (materialsData || []).map(async (material) => {
+          // Get last transaction
           const { data: lastTx } = await supabase
             .from('stock_transactions')
             .select('transaction_type, quantity, created_at')
@@ -104,18 +118,59 @@ export default function StockManagementPage() {
             .limit(1)
             .single();
 
+          // Get average price for last 30 days
+          const { data: tx30d } = await supabase
+            .from('stock_transactions')
+            .select('unit_price, quantity')
+            .eq('raw_material_id', material.id)
+            .eq('transaction_type', 'in')
+            .gte('created_at', date30d.toISOString())
+            .not('unit_price', 'is', null)
+            .gt('unit_price', 0);
+
+          // Get average price for last 3 months
+          const { data: tx3m } = await supabase
+            .from('stock_transactions')
+            .select('unit_price, quantity')
+            .eq('raw_material_id', material.id)
+            .eq('transaction_type', 'in')
+            .gte('created_at', date3m.toISOString())
+            .not('unit_price', 'is', null)
+            .gt('unit_price', 0);
+
+          // Get average price for last 1 year
+          const { data: tx1y } = await supabase
+            .from('stock_transactions')
+            .select('unit_price, quantity')
+            .eq('raw_material_id', material.id)
+            .eq('transaction_type', 'in')
+            .gte('created_at', date1y.toISOString())
+            .not('unit_price', 'is', null)
+            .gt('unit_price', 0);
+
+          // Calculate weighted average prices
+          const calculateAvgPrice = (transactions: any[]) => {
+            if (!transactions || transactions.length === 0) return undefined;
+            const totalValue = transactions.reduce((sum, tx) => sum + (tx.unit_price * tx.quantity), 0);
+            const totalQty = transactions.reduce((sum, tx) => sum + tx.quantity, 0);
+            return totalQty > 0 ? totalValue / totalQty : undefined;
+          };
+
           return {
             ...material,
             last_transaction: lastTx ? {
               type: lastTx.transaction_type as 'in' | 'production' | 'damage',
               quantity: lastTx.quantity,
               date: lastTx.created_at
-            } : undefined
+            } : undefined,
+            avg_price_30d: calculateAvgPrice(tx30d || []),
+            avg_price_3m: calculateAvgPrice(tx3m || []),
+            avg_price_1y: calculateAvgPrice(tx1y || [])
           };
         })
       );
 
-      setMaterials(materialsWithLastTransaction);
+      setMaterials(materialsWithDetails);
     } catch (error) {
       console.error('Error fetching materials:', error);
       setError('ไม่สามารถโหลดข้อมูลวัตถุดิบได้');
@@ -167,6 +222,17 @@ export default function StockManagementPage() {
     }
   }, [authLoading, userProfile, fetchMaterials, fetchTransactions]);
 
+  // Auto-calculate unit price when quantity or total price changes
+  useEffect(() => {
+    if (transactionType === 'in' && quantity && totalPrice) {
+      const quantityNum = parseFloat(quantity);
+      const totalPriceNum = parseFloat(totalPrice);
+      if (!isNaN(quantityNum) && !isNaN(totalPriceNum) && quantityNum > 0) {
+        setUnitPrice((totalPriceNum / quantityNum).toFixed(2));
+      }
+    }
+  }, [quantity, totalPrice, transactionType]);
+
   // Handle submit transaction
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -188,6 +254,16 @@ export default function StockManagementPage() {
       return;
     }
 
+    // Validate price for 'in' transaction
+    if (transactionType === 'in') {
+      const totalPriceNum = parseFloat(totalPrice);
+      if (!totalPrice || totalPriceNum <= 0) {
+        setError('กรุณากรอกราคารวมสำหรับการซื้อเข้า');
+        setSaving(false);
+        return;
+      }
+    }
+
     try {
       const { data: sessionData } = await supabase.auth.getSession();
 
@@ -201,6 +277,8 @@ export default function StockManagementPage() {
           raw_material_id: selectedMaterialId,
           transaction_type: transactionType,
           quantity: quantityNum,
+          unit_price: transactionType === 'in' ? parseFloat(unitPrice) : undefined,
+          total_price: transactionType === 'in' ? parseFloat(totalPrice) : undefined,
           notes: notes || undefined
         })
       });
@@ -226,6 +304,8 @@ export default function StockManagementPage() {
       setTransactionType(null);
       setSelectedMaterialId('');
       setQuantity('');
+      setUnitPrice('');
+      setTotalPrice('');
       setNotes('');
 
       // Refresh materials and transactions
@@ -446,7 +526,7 @@ export default function StockManagementPage() {
             return (
               <div
                 key={material.id}
-                className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow p-5"
+                className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow p-5 flex flex-col"
               >
                 {/* Header with image and basic info */}
                 <div className="flex items-start gap-4 mb-4">
@@ -468,7 +548,7 @@ export default function StockManagementPage() {
                 </div>
 
                 {/* Stock info */}
-                <div className="space-y-3 mb-4">
+                <div className="space-y-3 mb-4 flex-grow">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-gray-600">สต็อกปัจจุบัน</span>
                     <span className="text-lg font-bold text-gray-900">
@@ -490,33 +570,60 @@ export default function StockManagementPage() {
                       {status.label}
                     </span>
                   </div>
+
+                  {/* Average Prices */}
+                  {(material.avg_price_30d || material.avg_price_3m || material.avg_price_1y) && (
+                    <div className="border-t border-gray-200 pt-3 mt-3">
+                      <p className="text-xs font-medium text-gray-700 mb-2">ราคาเฉลี่ย (บาท/{material.unit})</p>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="bg-blue-50 rounded px-2 py-1.5">
+                          <p className="text-[10px] text-blue-600 font-medium mb-0.5">30 วัน</p>
+                          <p className="text-xs font-bold text-blue-700">
+                            {material.avg_price_30d ? `฿${material.avg_price_30d.toFixed(2)}` : '-'}
+                          </p>
+                        </div>
+                        <div className="bg-green-50 rounded px-2 py-1.5">
+                          <p className="text-[10px] text-green-600 font-medium mb-0.5">3 เดือน</p>
+                          <p className="text-xs font-bold text-green-700">
+                            {material.avg_price_3m ? `฿${material.avg_price_3m.toFixed(2)}` : '-'}
+                          </p>
+                        </div>
+                        <div className="bg-purple-50 rounded px-2 py-1.5">
+                          <p className="text-[10px] text-purple-600 font-medium mb-0.5">1 ปี</p>
+                          <p className="text-xs font-bold text-purple-700">
+                            {material.avg_price_1y ? `฿${material.avg_price_1y.toFixed(2)}` : '-'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Last transaction */}
+                  {material.last_transaction && (
+                    <div className="border-t border-gray-200 pt-3 mt-3">
+                      <p className="text-xs text-gray-500 mb-2">การกระทำล่าสุด</p>
+                      <div className="flex items-center justify-between mb-1">
+                        {getTransactionBadge(material.last_transaction.type)}
+                        <span className="text-sm font-medium text-gray-900">
+                          {material.last_transaction.type === 'in' ? '+' : '-'}
+                          {material.last_transaction.quantity} {material.unit}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <Clock className="w-3.5 h-3.5" />
+                        {new Date(material.last_transaction.date).toLocaleString('th-TH', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* Last transaction */}
-                {material.last_transaction && (
-                  <div className="border-t border-gray-200 pt-3 mb-3">
-                    <p className="text-xs text-gray-500 mb-2">การกระทำล่าสุด</p>
-                    <div className="flex items-center justify-between mb-1">
-                      {getTransactionBadge(material.last_transaction.type)}
-                      <span className="text-sm font-medium text-gray-900">
-                        {material.last_transaction.type === 'in' ? '+' : '-'}
-                        {material.last_transaction.quantity} {material.unit}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                      <Clock className="w-3.5 h-3.5" />
-                      {new Date(material.last_transaction.date).toLocaleString('th-TH', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Action button */}
+                {/* Action button - sticks to bottom */}
                 <button
                   onClick={() => handleViewHistory(material.id)}
                   className="w-full mt-3 px-4 py-2 bg-[#E9B308]/10 text-[#E9B308] hover:bg-[#E9B308]/20 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
@@ -604,6 +711,12 @@ export default function StockManagementPage() {
                         จำนวน
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        ราคาต่อหน่วย
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        ราคารวม
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         หมายเหตุ
                       </th>
                     </tr>
@@ -644,6 +757,20 @@ export default function StockManagementPage() {
                             {transaction.transaction_type === 'in' ? '+' : '-'}
                             {transaction.quantity.toLocaleString('th-TH')} {transaction.raw_materials?.unit || ''}
                           </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {transaction.transaction_type === 'in' && transaction.unit_price
+                            ? `฿${transaction.unit_price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`
+                            : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {transaction.transaction_type === 'in' && transaction.total_price ? (
+                            <span className="text-sm font-semibold text-[#E9B308]">
+                              ฿{transaction.total_price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-gray-400">-</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
                           {transaction.notes || '-'}
@@ -686,24 +813,49 @@ export default function StockManagementPage() {
                   </div>
                 </div>
 
-                {/* Material Selection */}
+                {/* Material Selection - full list without scrollbar */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     เลือกวัตถุดิบ *
                   </label>
-                  <select
-                    value={selectedMaterialId}
-                    onChange={(e) => setSelectedMaterialId(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent text-base"
-                    required
-                  >
-                    <option value="">-- เลือกวัตถุดิบ --</option>
+                  <div className="grid grid-cols-2 gap-3 border border-gray-300 rounded-lg p-3">
                     {materials.map((material) => (
-                      <option key={material.id} value={material.id}>
-                        {material.name} - สต็อกปัจจุบัน: {material.current_stock} {material.unit}
-                      </option>
+                      <div
+                        key={material.id}
+                        onClick={() => setSelectedMaterialId(material.id)}
+                        className={`cursor-pointer border-2 rounded-lg p-3 transition-all ${
+                          selectedMaterialId === material.id
+                            ? 'border-[#E9B308] bg-[#E9B308] bg-opacity-10'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {material.image ? (
+                            <img
+                              src={getImageUrl(material.image)}
+                              alt={material.name}
+                              className="w-12 h-12 object-cover rounded-lg flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <Package className="w-6 h-6 text-gray-400" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 text-sm truncate">
+                              {material.name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              สต็อก: {material.current_stock} {material.unit}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     ))}
-                  </select>
+                  </div>
+                  {!selectedMaterialId && (
+                    <p className="text-sm text-red-500 mt-1">กรุณาเลือกวัตถุดิบ</p>
+                  )}
                 </div>
 
                 {/* Material Preview */}
@@ -751,6 +903,49 @@ export default function StockManagementPage() {
                     required
                   />
                 </div>
+
+                {/* Price fields - Only for 'in' transaction */}
+                {transactionType === 'in' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          ราคารวม (บาท) *
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={totalPrice}
+                          onChange={(e) => setTotalPrice(e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent text-base"
+                          placeholder="500.00"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          ราคาต่อหน่วย (บาท/{selectedMaterial?.unit || 'หน่วย'})
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={unitPrice}
+                          onChange={(e) => setUnitPrice(e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent text-base font-semibold"
+                          placeholder="คำนวณอัตโนมัติ"
+                          readOnly
+                        />
+                      </div>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <p className="text-sm text-blue-700">
+                        <strong>เช่น:</strong> ซื้อส้มสายน้ำผึ้งมา 20 kg ราคา 500 บาท → ระบบจะคำนวณให้ = 25 บาท/kg
+                      </p>
+                    </div>
+                  </>
+                )}
 
                 {/* Notes */}
                 <div>

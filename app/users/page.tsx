@@ -17,7 +17,8 @@ import {
   AlertCircle,
   Check,
   X,
-  Loader2
+  Loader2,
+  Trash2
 } from 'lucide-react';
 
 // User interface
@@ -267,12 +268,12 @@ export default function UsersPage() {
   const handleToggleUserStatus = async (user: User) => {
     const newStatus = !user.is_active;
     const action = newStatus ? 'เปิดใช้งาน' : 'ระงับ';
-    
+
     if (!confirm(`คุณต้องการ${action}ผู้ใช้นี้หรือไม่?`)) return;
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      
+
       const response = await fetch('/api/users', {
         method: 'PUT',
         headers: {
@@ -289,11 +290,11 @@ export default function UsersPage() {
       });
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || `ไม่สามารถ${action}ผู้ใช้ได้`);
       }
-      
+
       setSuccess(`${action}ผู้ใช้สำเร็จ`);
       setDataFetched(false);
       fetchUsers();
@@ -303,6 +304,39 @@ export default function UsersPage() {
         setError(error.message);
       } else {
         setError(`ไม่สามารถ${action}ผู้ใช้ได้`);
+      }
+    }
+  };
+
+  // Handle delete user permanently
+  const handleDeleteUser = async (user: User) => {
+    if (!confirm(`⚠️ คุณแน่ใจหรือไม่ที่จะลบผู้ใช้ "${user.name}" ถาวร?\n\nการดำเนินการนี้ไม่สามารถย้อนกลับได้!`)) return;
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+
+      const response = await fetch(`/api/users?id=${user.id}&hard=true`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'ไม่สามารถลบผู้ใช้ได้');
+      }
+
+      // Remove user from local state immediately
+      setUsers(prevUsers => prevUsers.filter(u => u.id !== user.id));
+      setSuccess('ลบผู้ใช้สำเร็จ');
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError('ไม่สามารถลบผู้ใช้ได้');
       }
     }
   };
@@ -541,17 +575,26 @@ export default function UsersPage() {
                         <Edit2 className="w-4 h-4" />
                       </button>
                       {user.id !== userProfile?.id && (
-                        <button
-                          onClick={() => handleToggleUserStatus(user)}
-                          className={user.is_active ? 'text-red-600 hover:text-red-900 p-1' : 'text-green-600 hover:text-green-900 p-1'}
-                          title={user.is_active ? 'ระงับการใช้งาน' : 'เปิดใช้งาน'}
-                        >
-                          {user.is_active ? (
-                            <X className="w-4 h-4" />
-                          ) : (
-                            <Check className="w-4 h-4" />
-                          )}
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleToggleUserStatus(user)}
+                            className={user.is_active ? 'text-orange-600 hover:text-orange-900 p-1' : 'text-green-600 hover:text-green-900 p-1'}
+                            title={user.is_active ? 'ระงับการใช้งาน' : 'เปิดใช้งาน'}
+                          >
+                            {user.is_active ? (
+                              <X className="w-4 h-4" />
+                            ) : (
+                              <Check className="w-4 h-4" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(user)}
+                            className="text-red-600 hover:text-red-900 p-1"
+                            title="ลบผู้ใช้ถาวร"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>

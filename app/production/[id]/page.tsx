@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 import {
   Factory, ArrowLeft, AlertTriangle, Package,
   Play, CheckCircle, XCircle, Clock, Calendar,
-  Beaker, Camera, Plus, Minus, Save
+  Beaker, Camera, Plus, Minus, Save, Trash2
 } from 'lucide-react';
 import Layout from '@/components/layout/Layout';
 import { getImageUrl } from '@/lib/utils/image';
@@ -71,6 +71,12 @@ interface ProductionBatch {
   completed_at?: string;
   cancelled_at?: string;
   cancelled_reason?: string;
+  total_material_cost?: number;
+  total_bottle_cost?: number;
+  unit_cost?: number; // deprecated - for backward compatibility
+  unit_cost_per_ml?: number;
+  total_volume_ml?: number;
+  cost_breakdown?: any;
 }
 
 interface Product {
@@ -82,7 +88,7 @@ interface Product {
 export default function ProductionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, userProfile } = useAuth();
 
   const [batch, setBatch] = useState<ProductionBatch | null>(null);
   const [product, setProduct] = useState<Product | null>(null);
@@ -103,6 +109,7 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
   const [executionNotes, setExecutionNotes] = useState<string>('');
   const [cancelReason, setCancelReason] = useState<string>('');
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // Fetch batch details
   useEffect(() => {
@@ -269,6 +276,40 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
     }
   };
 
+  // Handle delete production batch (Admin only)
+  const handleDelete = async () => {
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/production/${resolvedParams.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error);
+      }
+
+      setSuccess('ลบข้อมูลการผลิตสำเร็จ');
+      setShowDeleteModal(false);
+
+      // Redirect to production list after 1 second
+      setTimeout(() => {
+        router.push('/production');
+      }, 1000);
+    } catch (err: any) {
+      setError(err.message);
+      setShowDeleteModal(false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Update actual item quantity
   const updateActualQuantity = (bottleTypeId: string, quantity: number) => {
     setActualItems(items =>
@@ -386,7 +427,18 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
             <p className="text-gray-600 text-sm">{product?.name}</p>
           </div>
         </div>
-        {getStatusBadge(batch.status)}
+        <div className="flex items-center gap-3">
+          {getStatusBadge(batch.status)}
+          {userProfile?.role === 'admin' && (
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
+              title="ลบข้อมูลการผลิต (Admin only)"
+            >
+              <Trash2 className="w-5 h-5 text-red-600 group-hover:text-red-700" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -440,35 +492,9 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                 </span>
               </div>
 
-              {/* Planned Items */}
-              <div className="border-t pt-3 mt-3">
-                <h3 className="font-medium text-gray-700 mb-2">จำนวนที่วางแผน</h3>
-                {batch.planned_items.map((item) => {
-                  const bottle = bottleTypes.find(b => b.id === item.bottle_type_id);
-                  return (
-                    <div key={item.bottle_type_id} className="flex justify-between text-sm py-1">
-                      <span>{bottle?.size || item.bottle_type_id}</span>
-                      <span className="font-medium">{item.quantity.toLocaleString()} ขวด</span>
-                    </div>
-                  );
-                })}
-                <div className="flex justify-between font-semibold mt-2 pt-2 border-t">
-                  <span>รวม</span>
-                  <span>{totalPlannedBottles.toLocaleString()} ขวด</span>
-                </div>
-              </div>
-
-              {/* Total Volume */}
-              <div className="bg-[#E9B308]/10 border border-[#E9B308] rounded-lg p-3">
-                <div className="flex justify-between">
-                  <span>ปริมาณน้ำ</span>
-                  <span className="font-bold">{totalVolume.toFixed(2)} ลิตร</span>
-                </div>
-              </div>
-
               {/* Notes */}
               {batch.planned_notes && (
-                <div className="text-sm">
+                <div className="text-sm border-t pt-3 mt-3">
                   <span className="text-gray-600">หมายเหตุ:</span>
                   <p className="mt-1 text-gray-900">{batch.planned_notes}</p>
                 </div>
@@ -478,19 +504,56 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
 
           {/* Material Requirements */}
           <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">วัตถุดิบที่ต้องใช้</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              {batch.status === 'completed' ? 'วัตถุดิบ (แผน vs ใช้จริง)' : 'วัตถุดิบที่ต้องใช้'}
+            </h2>
 
             {recipes.length > 0 ? (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {recipes.map((recipe) => {
                   const material = recipe.raw_materials;
                   const required = recipe.quantity_per_unit * totalVolume;
+                  const actualMaterial = batch.actual_materials?.find(
+                    (m: ActualMaterial) => m.material_id === recipe.raw_material_id
+                  );
+                  const actualUsed = actualMaterial?.quantity_used || 0;
+                  const diff = actualUsed - required;
+                  const diffPercent = required > 0 ? ((diff / required) * 100) : 0;
+
                   return (
-                    <div key={recipe.raw_material_id} className="flex justify-between text-sm py-2 border-b last:border-0">
-                      <span>{material?.name}</span>
-                      <span className="font-medium">
-                        {required.toFixed(2)} {material?.unit}
-                      </span>
+                    <div key={recipe.raw_material_id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                      <div className="bg-gray-100 px-4 py-2 font-semibold text-gray-900">{material?.name}</div>
+
+                      {batch.status === 'completed' && actualMaterial ? (
+                        <div className="grid grid-cols-3 gap-0 text-sm">
+                          <div className="bg-blue-50 p-4 border-r border-gray-200">
+                            <div className="text-gray-600 mb-1 text-xs">แผน</div>
+                            <div className="font-bold text-blue-700 text-lg">
+                              {required.toFixed(2)} {material?.unit}
+                            </div>
+                          </div>
+                          <div className="bg-green-50 p-4 border-r border-gray-200">
+                            <div className="text-gray-600 mb-1 text-xs">ใช้จริง</div>
+                            <div className="font-bold text-green-700 text-lg">
+                              {actualUsed.toFixed(2)} {material?.unit}
+                            </div>
+                          </div>
+                          <div className="bg-gray-50 p-4">
+                            <div className="text-gray-600 mb-1 text-xs">ส่วนต่าง</div>
+                            <div className={`font-bold text-lg ${diff >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                              {diff >= 0 ? '+' : ''}{diff.toFixed(2)}
+                              <span className="text-xs ml-1">({diffPercent.toFixed(1)}%)</span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4">
+                          <div className="text-gray-600 mb-1 text-xs">จำนวนที่ต้องใช้</div>
+                          <div className="font-bold text-gray-900 text-lg">
+                            {required.toFixed(2)} {material?.unit}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -503,6 +566,46 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
 
         {/* Right Column - Execution Form */}
         <div className="space-y-6">
+          {/* Planned Output - For Planned Status */}
+          {batch.status === 'planned' && (
+            <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">สินค้าพร้อมขายที่วางแผน</h2>
+              <div className="space-y-3">
+                {batch.planned_items.map((plannedItem) => {
+                  const bottle = bottleTypes.find(b => b.id === plannedItem.bottle_type_id);
+                  return (
+                    <div key={plannedItem.bottle_type_id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                      <div className="bg-gray-100 px-4 py-2 font-semibold text-gray-900">{bottle?.size}</div>
+                      <div className="p-4">
+                        <div className="flex justify-between items-baseline">
+                          <div className="text-gray-600 text-sm">จำนวนที่วางแผน</div>
+                          <div className="font-bold text-[#E9B308] text-2xl">{plannedItem.quantity.toLocaleString()} ขวด</div>
+                        </div>
+                        <div className="flex justify-between items-baseline mt-2 pt-2 border-t border-gray-200">
+                          <div className="text-gray-600 text-xs">ปริมาตร</div>
+                          <div className="text-gray-900 text-sm font-medium">
+                            {((bottle?.capacity_ml || 0) * plannedItem.quantity / 1000).toFixed(2)} ลิตร
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Summary */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-gray-700 font-medium">รวมทั้งหมด</span>
+                  <div className="text-right">
+                    <div className="text-xl font-bold text-gray-900">{totalPlannedBottles.toLocaleString()} ขวด</div>
+                    <div className="text-sm text-gray-600">{totalVolume.toFixed(2)} ลิตร</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Action Buttons for Planned Status */}
           {batch.status === 'planned' && (
             <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
@@ -686,61 +789,213 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
 
           {/* Completed Status - Show Results */}
           {batch.status === 'completed' && (
-            <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">ผลการผลิต</h2>
+            <>
+              {/* Production Comparison */}
+              <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">เปรียบเทียบแผน vs ผลจริง</h2>
 
-              {batch.actual_items && (
-                <div className="space-y-2 mb-4">
-                  {batch.actual_items.map((item: ActualItem) => {
-                    const bottle = bottleTypes.find(b => b.id === item.bottle_type_id);
-                    return (
-                      <div key={item.bottle_type_id} className="flex justify-between text-sm py-1">
-                        <span>{bottle?.size}</span>
-                        <span>
-                          {item.quantity} ขวด
-                          {item.defects > 0 && (
-                            <span className="text-red-500 ml-2">(เสีย {item.defects})</span>
-                          )}
-                        </span>
+                {batch.actual_items && (
+                  <div className="space-y-3">
+                    {batch.planned_items.map((plannedItem) => {
+                      const actualItem = batch.actual_items?.find(a => a.bottle_type_id === plannedItem.bottle_type_id);
+                      const bottle = bottleTypes.find(b => b.id === plannedItem.bottle_type_id);
+                      const goodQuantity = actualItem ? actualItem.quantity - actualItem.defects : 0;
+                      const defects = actualItem?.defects || 0;
+                      const totalActual = actualItem?.quantity || 0;
+                      const diff = totalActual - plannedItem.quantity;
+                      const diffPercent = plannedItem.quantity > 0 ? ((diff / plannedItem.quantity) * 100) : 0;
+
+                      return (
+                        <div key={plannedItem.bottle_type_id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                          <div className="bg-gray-100 px-4 py-2 font-semibold text-gray-900">{bottle?.size}</div>
+
+                          <div className="grid grid-cols-3 gap-0 text-sm">
+                            <div className="bg-blue-50 p-4 border-r border-gray-200">
+                              <div className="text-gray-600 mb-1 text-xs">แผน</div>
+                              <div className="font-bold text-blue-700 text-lg">{plannedItem.quantity.toLocaleString()} ขวด</div>
+                            </div>
+                            <div className="bg-green-50 p-4 border-r border-gray-200">
+                              <div className="text-gray-600 mb-1 text-xs">ผลิตได้</div>
+                              <div className="font-bold text-green-700 text-lg">{totalActual.toLocaleString()} ขวด</div>
+                            </div>
+                            <div className="bg-gray-50 p-4">
+                              <div className="text-gray-600 mb-1 text-xs">ส่วนต่าง</div>
+                              <div className={`font-bold text-lg ${diff >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {diff >= 0 ? '+' : ''}{diff.toLocaleString()}
+                                <span className="text-xs ml-1">({diffPercent.toFixed(1)}%)</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3 text-sm px-4 py-3 bg-gray-50 border-t border-gray-200">
+                            <div>
+                              <span className="text-gray-500">ของดี: </span>
+                              <span className="font-semibold text-gray-900">{goodQuantity.toLocaleString()} ขวด</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">ของเสีย: </span>
+                              <span className="font-semibold text-red-600">{defects.toLocaleString()} ขวด</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Cost Summary - Admin Only */}
+              {userProfile?.role === 'admin' && (() => {
+                // Convert values to numbers (they might be strings from DB)
+                const materialCost = typeof batch.total_material_cost === 'string'
+                  ? parseFloat(batch.total_material_cost)
+                  : (batch.total_material_cost || 0);
+                const bottleCost = typeof batch.total_bottle_cost === 'string'
+                  ? parseFloat(batch.total_bottle_cost)
+                  : (batch.total_bottle_cost || 0);
+                const unitCostPerMl = typeof batch.unit_cost_per_ml === 'string'
+                  ? parseFloat(batch.unit_cost_per_ml)
+                  : (batch.unit_cost_per_ml || 0);
+                const totalVolumeMl = typeof batch.total_volume_ml === 'string'
+                  ? parseFloat(batch.total_volume_ml)
+                  : (batch.total_volume_ml || 0);
+
+                const hasCostData = materialCost > 0 || bottleCost > 0 || unitCostPerMl > 0;
+
+                return hasCostData ? (
+                  <div className="bg-gradient-to-br from-[#E9B308]/10 to-[#E9B308]/5 border border-[#E9B308] rounded-lg shadow p-6">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      💰 สรุปต้นทุนการผลิต
+                      <span className="text-xs font-normal px-2 py-1 bg-red-100 text-red-700 rounded">Admin only</span>
+                    </h2>
+
+                    <div className="space-y-3">
+                      {/* Total Costs */}
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="bg-white rounded-lg p-3 border border-gray-200">
+                          <div className="text-gray-500 mb-1">ต้นทุนวัตถุดิบ</div>
+                          <div className="text-lg font-bold text-gray-900">
+                            ฿{materialCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </div>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 border border-gray-200">
+                          <div className="text-gray-500 mb-1">ต้นทุนขวด</div>
+                          <div className="text-lg font-bold text-gray-900">
+                            ฿{bottleCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </div>
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
 
+                      {/* Total and Unit Cost */}
+                      <div className="bg-white rounded-lg p-4 border-2 border-[#E9B308]">
+                        <div className="flex items-baseline justify-between mb-2">
+                          <span className="text-gray-700 font-medium">ต้นทุนรวมทั้งหมด</span>
+                          <span className="text-2xl font-bold text-[#E9B308]">
+                            ฿{(materialCost + bottleCost).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between text-sm pt-2 border-t border-gray-200">
+                          <span className="text-gray-600">ปริมาตรรวม</span>
+                          <span className="font-semibold text-gray-900">
+                            {(totalVolumeMl / 1000).toFixed(2)} ลิตร ({totalVolumeMl.toLocaleString()} ml)
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between text-sm pt-2 border-t border-gray-200 mt-2">
+                          <span className="text-gray-600">ต้นทุนต่อ ml</span>
+                          <span className="text-lg font-bold text-green-600">
+                            ฿{unitCostPerMl.toFixed(4)}/ml
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Unit Cost per Bottle Type */}
+                      {batch.actual_items && unitCostPerMl > 0 && (
+                        <div className="bg-white rounded-lg p-3 border border-gray-200">
+                          <div className="text-sm font-medium text-gray-700 mb-2">ต้นทุนต่อหน่วย (แต่ละขนาด)</div>
+                          <div className="space-y-2">
+                            {batch.actual_items.map((item: ActualItem) => {
+                              const bottle = bottleTypes.find(b => b.id === item.bottle_type_id);
+                              const goodQty = item.quantity - item.defects;
+                              const unitCostPerBottle = unitCostPerMl * (bottle?.capacity_ml || 0);
+                              const costPerType = goodQty * unitCostPerBottle;
+                              return (
+                                <div key={item.bottle_type_id} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
+                                  <span className="text-gray-700">
+                                    {bottle?.size} <span className="text-xs text-gray-500">({bottle?.capacity_ml} ml)</span>
+                                  </span>
+                                  <div className="text-right">
+                                    <div className="font-semibold text-gray-900">
+                                      ฿{unitCostPerBottle.toFixed(2)}/ขวด
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      {goodQty} ขวด = ฿{costPerType.toFixed(2)}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
+              {/* Quality Control Results */}
               {(batch.brix_before || batch.brix_after) && (
-                <div className="border-t pt-3 mt-3">
-                  <h3 className="font-medium text-gray-700 mb-2">ผลทดสอบคุณภาพ</h3>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Beaker className="w-5 h-5" />
+                    ผลทดสอบคุณภาพ
+                  </h2>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
                     {batch.brix_before && (
-                      <div>Brix (ก่อน): {batch.brix_before}°</div>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-gray-500 mb-1">Brix (ก่อน)</div>
+                        <div className="font-semibold text-gray-900">{batch.brix_before}°Bx</div>
+                      </div>
                     )}
                     {batch.brix_after && (
-                      <div>Brix (หลัง): {batch.brix_after}°</div>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-gray-500 mb-1">Brix (หลัง)</div>
+                        <div className="font-semibold text-gray-900">{batch.brix_after}°Bx</div>
+                      </div>
                     )}
                     {batch.acidity_before && (
-                      <div>Acidity (ก่อน): {batch.acidity_before}%</div>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-gray-500 mb-1">Acidity (ก่อน)</div>
+                        <div className="font-semibold text-gray-900">{batch.acidity_before}%</div>
+                      </div>
                     )}
                     {batch.acidity_after && (
-                      <div>Acidity (หลัง): {batch.acidity_after}%</div>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-gray-500 mb-1">Acidity (หลัง)</div>
+                        <div className="font-semibold text-gray-900">{batch.acidity_after}%</div>
+                      </div>
                     )}
                   </div>
                 </div>
               )}
 
-              {batch.execution_notes && (
-                <div className="border-t pt-3 mt-3">
-                  <h3 className="font-medium text-gray-700 mb-1">หมายเหตุ</h3>
-                  <p className="text-sm text-gray-600">{batch.execution_notes}</p>
+              {/* Notes and Timestamp */}
+              {(batch.execution_notes || batch.completed_at) && (
+                <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
+                  {batch.execution_notes && (
+                    <div className="mb-3">
+                      <h3 className="font-medium text-gray-700 mb-1">หมายเหตุ</h3>
+                      <p className="text-sm text-gray-600">{batch.execution_notes}</p>
+                    </div>
+                  )}
+                  {batch.completed_at && (
+                    <div className={`text-sm text-gray-500 flex items-center gap-1 ${batch.execution_notes ? 'border-t pt-3' : ''}`}>
+                      <Clock className="w-4 h-4" />
+                      เสร็จสิ้นเมื่อ: {new Date(batch.completed_at).toLocaleString('th-TH')}
+                    </div>
+                  )}
                 </div>
               )}
-
-              {batch.completed_at && (
-                <div className="border-t pt-3 mt-3 text-sm text-gray-500">
-                  เสร็จสิ้นเมื่อ: {new Date(batch.completed_at).toLocaleString('th-TH')}
-                </div>
-              )}
-            </div>
+            </>
           )}
 
           {/* Cancelled Status */}
@@ -786,6 +1041,54 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                 className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
                 {submitting ? 'กำลังยกเลิก...' : 'ยืนยันยกเลิก'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Modal (Admin only) */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-red-100 rounded-full">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">ลบข้อมูลการผลิต</h3>
+            </div>
+            <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-sm text-yellow-800 font-medium mb-2">⚠️ คำเตือน</p>
+              <p className="text-sm text-yellow-700">
+                การลบข้อมูลนี้จะ <strong>ลบถาวร (Hard Delete)</strong> และไม่สามารถกู้คืนได้
+              </p>
+              <p className="text-sm text-yellow-700 mt-2">
+                ข้อมูลที่จะถูกลบ:
+              </p>
+              <ul className="text-sm text-yellow-700 list-disc list-inside mt-1">
+                <li>Production Batch: {batch.batch_id}</li>
+                <li>Stock Lot Usages (FIFO records)</li>
+                <li>Finished Goods (สินค้าพร้อมขาย)</li>
+              </ul>
+            </div>
+            <p className="text-gray-600 mb-4">
+              คุณแน่ใจหรือไม่ที่จะลบ <strong className="text-gray-900">{batch.batch_id}</strong>?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                disabled={submitting}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={submitting}
+                className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {submitting ? 'กำลังลบ...' : 'ยืนยันลบ'}
               </button>
             </div>
           </div>

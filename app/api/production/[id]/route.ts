@@ -179,13 +179,55 @@ export async function PATCH(
 
     switch (action) {
       case 'start':
-        // เริ่มผลิต
+        // เริ่มผลิต - ต้องตรวจสอบวัตถุดิบก่อน
         if (batch.status !== 'planned') {
           return NextResponse.json(
             { error: 'Can only start production from planned status' },
             { status: 400 }
           );
         }
+
+        // คำนวณปริมาตรรวม
+        const bottleIds = (batch.planned_items as PlannedItem[] || [])
+          .map(item => item.bottle_type_id);
+        const { data: bottles } = await supabaseAdmin
+          .from('bottle_types')
+          .select('id, capacity_ml')
+          .in('id', bottleIds);
+
+        let totalVolumeLiters = 0;
+        for (const item of (batch.planned_items as PlannedItem[])) {
+          const bottle = bottles?.find(b => b.id === item.bottle_type_id);
+          if (bottle) {
+            totalVolumeLiters += (bottle.capacity_ml / 1000) * item.quantity;
+          }
+        }
+
+        // ตรวจสอบวัตถุดิบ
+        try {
+          const { data: availabilityCheck, error: checkError } = await supabaseAdmin
+            .rpc('check_material_availability', {
+              p_product_id: batch.product_id,
+              p_total_volume_liters: totalVolumeLiters
+            });
+
+          if (!checkError && availabilityCheck && availabilityCheck.length > 0) {
+            const check = availabilityCheck[0];
+            if (!check.is_sufficient) {
+              return NextResponse.json(
+                {
+                  error: 'วัตถุดิบไม่เพียงพอ กรุณาซื้อเพิ่มก่อนเริ่มผลิต',
+                  insufficient_materials: check.insufficient_materials
+                },
+                { status: 400 }
+              );
+            }
+          }
+        } catch (err) {
+          console.log('Material check error:', err);
+          // ถ้า function ไม่มี ให้ผ่านไปได้
+        }
+
         updateData.status = 'in_progress';
         updateData.started_at = new Date().toISOString();
         updateData.started_by = userId;
@@ -210,19 +252,29 @@ export async function PATCH(
           );
         }
 
+        if (!execData.actual_materials || execData.actual_materials.length === 0) {
+          return NextResponse.json(
+            { error: 'Actual materials are required' },
+            { status: 400 }
+          );
+        }
+
         // Deduct bottle stock
         for (const item of execData.actual_items) {
           const { data: bottle } = await supabaseAdmin
             .from('bottle_types')
-            .select('id, stock')
+            .select('id, stock, size')
             .eq('id', item.bottle_type_id)
             .single();
 
           if (bottle) {
             const newStock = bottle.stock - item.quantity;
             if (newStock < 0) {
+              const shortage = item.quantity - bottle.stock;
               return NextResponse.json(
-                { error: `Insufficient bottle stock for ${item.bottle_type_id}` },
+                {
+                  error: `ขวดไม่เพียงพอ: ขวด ${bottle.size} (ต้องการ ${item.quantity} ขวด, มีอยู่ ${bottle.stock} ขวด, ขาด ${shortage} ขวด)`
+                },
                 { status: 400 }
               );
             }
@@ -245,35 +297,74 @@ export async function PATCH(
           }
         }
 
-        // Deduct raw materials
-        if (execData.actual_materials && execData.actual_materials.length > 0) {
-          for (const matUsage of execData.actual_materials) {
-            const { data: material } = await supabaseAdmin
+        // Deduct raw materials and use FIFO
+        for (const matUsage of execData.actual_materials) {
+          const { data: material } = await supabaseAdmin
+            .from('raw_materials')
+            .select('id, name, current_stock, unit')
+            .eq('id', matUsage.material_id)
+            .single();
+
+          if (material) {
+            const newStock = material.current_stock - matUsage.quantity_used;
+            if (newStock < 0) {
+              return NextResponse.json(
+                { error: `Insufficient stock for ${material.name}` },
+                { status: 400 }
+              );
+            }
+
+            await supabaseAdmin
               .from('raw_materials')
-              .select('id, name, current_stock, unit')
-              .eq('id', matUsage.material_id)
+              .update({ current_stock: newStock, updated_at: new Date().toISOString() })
+              .eq('id', matUsage.material_id);
+
+            // Create stock transaction
+            const { data: transaction } = await supabaseAdmin
+              .from('stock_transactions')
+              .insert({
+                raw_material_id: matUsage.material_id,
+                transaction_type: 'production',
+                quantity: matUsage.quantity_used,
+                notes: `Production batch: ${batch.batch_id}`,
+                created_at: new Date().toISOString()
+              })
+              .select()
               .single();
 
-            if (material) {
-              const newStock = material.current_stock - matUsage.quantity_used;
-
-              await supabaseAdmin
-                .from('raw_materials')
-                .update({ current_stock: newStock, updated_at: new Date().toISOString() })
-                .eq('id', matUsage.material_id);
-
-              // Create stock transaction
-              await supabaseAdmin
-                .from('stock_transactions')
-                .insert({
-                  raw_material_id: matUsage.material_id,
-                  transaction_type: 'out',
-                  quantity: matUsage.quantity_used,
-                  notes: `Production batch: ${batch.batch_id}`,
-                  created_at: new Date().toISOString()
+            // Call FIFO deduction
+            if (transaction) {
+              try {
+                await supabaseAdmin.rpc('deduct_stock_fifo', {
+                  p_raw_material_id: matUsage.material_id,
+                  p_quantity_to_deduct: matUsage.quantity_used,
+                  p_stock_transaction_id: transaction.id,
+                  p_production_batch_id: id
                 });
+              } catch (fifoErr) {
+                console.error('FIFO deduction error:', fifoErr);
+                // Continue even if FIFO function doesn't exist
+              }
             }
           }
+        }
+
+        // Calculate FIFO costing
+        let costData: any = null;
+        try {
+          const { data: costResult, error: costError } = await supabaseAdmin
+            .rpc('calculate_production_cost_fifo', {
+              p_production_batch_id: id,
+              p_actual_materials: execData.actual_materials,
+              p_actual_items: execData.actual_items
+            });
+
+          if (!costError && costResult && costResult.length > 0) {
+            costData = costResult[0];
+          }
+        } catch (costErr) {
+          console.error('Cost calculation error:', costErr);
+          // Continue without costing if function doesn't exist
         }
 
         updateData.status = 'completed';
@@ -287,7 +378,75 @@ export async function PATCH(
         updateData.acidity_after = execData.acidity_after;
         updateData.quality_images = execData.quality_images || [];
         updateData.execution_notes = execData.execution_notes;
-        break;
+
+        if (costData) {
+          updateData.total_material_cost = costData.total_material_cost;
+          updateData.total_bottle_cost = costData.total_bottle_cost;
+          updateData.unit_cost_per_ml = costData.unit_cost_per_ml;
+          updateData.total_volume_ml = costData.total_volume_ml;
+          updateData.cost_breakdown = costData.cost_breakdown;
+          // Keep old unit_cost for backward compatibility (optional)
+          updateData.unit_cost = costData.unit_cost_per_ml;
+        }
+
+        // Update batch first
+        const { error: updateError } = await supabaseAdmin
+          .from('production_batches')
+          .update(updateData)
+          .eq('id', id);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        // Create finished goods inventory
+        for (const item of execData.actual_items) {
+          const goodQuantity = item.quantity - (item.defects || 0);
+          if (goodQuantity > 0 && costData) {
+            // Get bottle capacity to calculate unit cost per bottle
+            const { data: bottle } = await supabaseAdmin
+              .from('bottle_types')
+              .select('capacity_ml')
+              .eq('id', item.bottle_type_id)
+              .single();
+
+            if (bottle) {
+              const unitCostPerBottle = costData.unit_cost_per_ml * bottle.capacity_ml;
+
+              await supabaseAdmin
+                .from('finished_goods')
+                .insert({
+                  product_id: batch.product_id,
+                  bottle_type_id: item.bottle_type_id,
+                  production_batch_id: id,
+                  quantity: goodQuantity,
+                  unit_cost: unitCostPerBottle,
+                  total_cost: goodQuantity * unitCostPerBottle,
+                  manufactured_date: new Date().toISOString(),
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                });
+            }
+          }
+        }
+
+        // Fetch the updated batch to return to the UI
+        const { data: updatedBatch, error: fetchUpdatedError } = await supabaseAdmin
+          .from('production_batches')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (fetchUpdatedError) {
+          throw fetchUpdatedError;
+        }
+
+        return NextResponse.json({
+          success: true,
+          batch: updatedBatch,
+          message: 'Production completed successfully',
+          costing: costData
+        });
 
       case 'cancel':
         // ยกเลิก
@@ -310,29 +469,121 @@ export async function PATCH(
         );
     }
 
-    // Update batch
-    const { data: updatedBatch, error: updateError } = await supabaseAdmin
+    // Update batch (for non-complete actions)
+    if (action !== 'complete') {
+      const { data: updatedBatch, error: updateError } = await supabaseAdmin
+        .from('production_batches')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('Update error:', updateError);
+        return NextResponse.json(
+          { error: updateError.message },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        batch: updatedBatch,
+        message: `Production ${action} successful`
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Action completed'
+    });
+  } catch (error) {
+    console.error('Error updating batch:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE - ลบ production batch (Admin only, Hard delete)
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { isAuth, userId } = await checkAuth(request);
+
+    if (!isAuth) {
+      return NextResponse.json(
+        { error: 'Unauthorized. Login required.' },
+        { status: 401 }
+      );
+    }
+
+    // Check if user is admin
+    const { data: { user } } = await supabaseAdmin.auth.getUser(
+      request.headers.get('authorization')?.substring(7) || ''
+    );
+
+    if (user?.email !== 'kwamkid@gmail.com') {
+      return NextResponse.json(
+        { error: 'Forbidden. Admin access required.' },
+        { status: 403 }
+      );
+    }
+
+    const { id } = await params;
+
+    // Fetch the batch to check if it exists
+    const { data: batch, error: fetchError } = await supabaseAdmin
       .from('production_batches')
-      .update(updateData)
+      .select('*')
       .eq('id', id)
-      .select()
       .single();
 
-    if (updateError) {
-      console.error('Update error:', updateError);
+    if (fetchError || !batch) {
       return NextResponse.json(
-        { error: updateError.message },
+        { error: 'Production batch not found' },
+        { status: 404 }
+      );
+    }
+
+    // Delete related records first (to avoid foreign key constraints)
+
+    // 1. Delete stock_lot_usages
+    await supabaseAdmin
+      .from('stock_lot_usages')
+      .delete()
+      .eq('production_batch_id', id);
+
+    // 2. Delete finished_goods
+    await supabaseAdmin
+      .from('finished_goods')
+      .delete()
+      .eq('production_batch_id', id);
+
+    // 3. Delete the production batch
+    const { error: deleteError } = await supabaseAdmin
+      .from('production_batches')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      console.error('Delete error:', deleteError);
+      return NextResponse.json(
+        { error: deleteError.message },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      batch: updatedBatch,
-      message: `Production ${action} successful`
+      message: 'Production batch deleted successfully'
     });
+
   } catch (error) {
-    console.error('Error updating batch:', error);
+    console.error('Error deleting batch:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

@@ -272,7 +272,14 @@ export default function NewProductionPage() {
         throw new Error(result.error || 'Failed to create production plan');
       }
 
-      // Redirect to production list instead of detail page
+      // Show warning if materials insufficient but still allow creation
+      if (result.has_warning && result.insufficient_materials) {
+        alert(`⚠️ ${result.message}\n\nวัตถุดิบที่ขาด:\n${JSON.parse(result.insufficient_materials).map((m: any) =>
+          `- ${m.material_name}: ต้องการ ${m.required} ${m.unit}, มี ${m.available} ${m.unit} (ขาด ${m.shortage} ${m.unit})`
+        ).join('\n')}\n\nกรุณาซื้อวัตถุดิบเพิ่มก่อนเริ่มผลิต`);
+      }
+
+      // Redirect to production list
       router.push('/production');
     } catch (err: any) {
       setError(err.message);
