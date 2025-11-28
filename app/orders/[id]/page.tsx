@@ -88,6 +88,7 @@ interface Order {
   order_date: string;
   delivery_date?: string;
   total_amount: number;
+  subtotal: number;
   payment_status: string;
   order_status: string;
   payment_method?: string;
