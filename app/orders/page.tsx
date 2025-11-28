@@ -30,6 +30,7 @@ interface Order {
   delivery_date?: string;
   total_amount: number;
   payment_status: string;
+  payment_method?: string;
   order_status: string;
   customer_id: string;
   customer_code: string;
