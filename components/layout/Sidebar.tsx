@@ -294,8 +294,19 @@ export default function Sidebar() {
                       : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
                   }`}
                 >
-                  <Settings className="w-5 h-5" />
+                  <Users className="w-5 h-5" />
                   <span className="font-medium">จัดการผู้ใช้</span>
+                </Link>
+                <Link
+                  href="/settings"
+                  className={`flex items-center space-x-3 px-3 py-2 rounded-lg mb-1 transition-colors ${
+                    pathname === '/settings'
+                      ? 'bg-[#E9B308] text-[#00231F]'
+                      : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+                  }`}
+                >
+                  <Settings className="w-5 h-5" />
+                  <span className="font-medium">ตั้งค่าระบบ</span>
                 </Link>
               </div>
             )}

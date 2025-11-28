@@ -265,9 +265,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Get all sellable products using the with_variations view
+    // Only show active products (is_active = true)
     const { data, error } = await supabaseAdmin
       .from('sellable_products_with_variations')
       .select('*')
+      .eq('is_active', true)
       .order('product_name', { ascending: true });
 
     if (error) {
@@ -558,7 +560,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// DELETE - Delete sellable product
+// DELETE - Deactivate sellable product (soft delete)
 export async function DELETE(request: NextRequest) {
   try {
     const { isAuth } = await checkAuth(request);
@@ -580,31 +582,31 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Check if being used in orders
-    const { data: usedInOrders } = await supabaseAdmin
-      .from('order_items')
-      .select('id')
-      .eq('product_id', productId)
-      .limit(1);
-
-    if (usedInOrders && usedInOrders.length > 0) {
-      return NextResponse.json(
-        { error: 'Cannot delete sellable product that has been ordered. Consider deactivating instead.' },
-        { status: 400 }
-      );
-    }
-
+    // Instead of deleting, deactivate the product (soft delete)
     const { error } = await supabaseAdmin
       .from('sellable_products')
-      .delete()
+      .update({
+        is_active: false,
+        updated_at: new Date().toISOString()
+      })
       .eq('id', productId);
 
     if (error) {
+      console.error('Error deactivating sellable product:', error);
       return NextResponse.json(
         { error: error.message },
         { status: 500 }
       );
     }
+
+    // Also deactivate all variations
+    await supabaseAdmin
+      .from('sellable_product_variations')
+      .update({
+        is_active: false,
+        updated_at: new Date().toISOString()
+      })
+      .eq('sellable_product_id', productId);
 
     return NextResponse.json({ success: true });
   } catch (error) {
