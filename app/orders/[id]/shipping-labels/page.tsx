@@ -46,7 +46,7 @@ export default function ShippingLabelsPage() {
   const params = useParams();
   const router = useRouter();
   const orderId = params?.id as string;
-  const { userProfile, authLoading } = useAuth();
+  const { userProfile, loading: authLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState<Order | null>(null);
