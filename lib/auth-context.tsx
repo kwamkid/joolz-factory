@@ -245,6 +245,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut();
     } catch (error) {
       console.error('Sign out error:', error);
+    } finally {
+      // Clear state และ redirect เสมอ แม้จะมี error
+      setUser(null);
+      setUserProfile(null);
+      setSession(null);
+      router.push('/login');
     }
   };
 
