@@ -249,7 +249,7 @@ export default function Sidebar() {
               }`}
             >
               <Home className="w-5 h-5" />
-              <span className="font-medium">Dashboard</span>
+              <span className="text-[16px] font-medium">Dashboard</span>
             </Link>
 
             {/* Menu Sections */}
@@ -269,7 +269,7 @@ export default function Sidebar() {
                     }`}
                   >
                     {item.icon}
-                    <span className="font-medium">{item.label}</span>
+                    <span className="text-[16px] font-medium">{item.label}</span>
                     {item.badge && (
                       <span className="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
                         {item.badge}
@@ -295,7 +295,7 @@ export default function Sidebar() {
                   }`}
                 >
                   <Users className="w-5 h-5" />
-                  <span className="font-medium">จัดการผู้ใช้</span>
+                  <span className="text-[16px] font-medium">จัดการผู้ใช้</span>
                 </Link>
                 <Link
                   href="/settings"
@@ -306,7 +306,7 @@ export default function Sidebar() {
                   }`}
                 >
                   <Settings className="w-5 h-5" />
-                  <span className="font-medium">ตั้งค่าระบบ</span>
+                  <span className="text-[16px] font-medium">ตั้งค่าระบบ</span>
                 </Link>
               </div>
             )}
@@ -319,7 +319,7 @@ export default function Sidebar() {
               className="flex items-center space-x-3 w-full px-3 py-2 text-gray-300 hover:bg-red-500/10 hover:text-red-500 rounded-lg transition-colors"
             >
               <LogOut className="w-5 h-5" />
-              <span className="font-medium">ออกจากระบบ</span>
+              <span className="text-[16px] font-medium">ออกจากระบบ</span>
             </button>
           </div>
         </div>

@@ -34,20 +34,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Create mock profile from user data
-  const createMockProfile = (authUser: User): UserProfile => {
-    // ใช้ email เพื่อกำหนด role
-    const isAdmin = authUser.email === 'kwamkid@gmail.com';
-    
-    return {
-      id: authUser.id,
-      email: authUser.email || '',
-      name: authUser.email?.split('@')[0] || 'User',
-      role: isAdmin ? 'admin' : 'operation',
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
+  // Fetch user profile from database
+  const fetchUserProfile = async (authUser: User): Promise<UserProfile> => {
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+
+      if (error || !data) {
+        console.log('No profile found in DB, creating default profile');
+        // Fallback: ถ้าไม่มีใน DB ให้ใช้ default
+        const isAdmin = authUser.email === 'kwamkid@gmail.com';
+        return {
+          id: authUser.id,
+          email: authUser.email || '',
+          name: authUser.email?.split('@')[0] || 'User',
+          role: isAdmin ? 'admin' : 'operation',
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      }
+
+      // Map database fields to UserProfile
+      return {
+        id: data.id,
+        email: data.email || authUser.email || '',
+        name: data.name || authUser.email?.split('@')[0] || 'User',
+        role: data.role || 'operation',
+        phone: data.phone || undefined,
+        isActive: data.is_active ?? true,
+        createdAt: new Date(data.created_at),
+        updatedAt: new Date(data.updated_at)
+      };
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      // Fallback on error
+      return {
+        id: authUser.id,
+        email: authUser.email || '',
+        name: authUser.email?.split('@')[0] || 'User',
+        role: 'operation',
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+    }
   };
 
   // Initialize auth on mount
@@ -72,11 +106,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('Found user:', session.user.email);
           setSession(session);
           setUser(session.user);
-          
-          // ใช้ mock profile แทนการ fetch
-          const mockProfile = createMockProfile(session.user);
-          setUserProfile(mockProfile);
-          console.log('Using mock profile:', mockProfile);
+
+          // ดึง profile จาก database
+          const profile = await fetchUserProfile(session.user);
+          setUserProfile(profile);
+          console.log('Loaded profile from DB:', profile);
         } else {
           console.log('No session found');
         }
@@ -122,8 +156,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               return prev; // No change needed
             }
             // Only update profile if user actually changed
-            const mockProfile = createMockProfile(currentSession.user);
-            setUserProfile(mockProfile);
+            fetchUserProfile(currentSession.user).then(profile => {
+              setUserProfile(profile);
+            });
             return currentSession.user;
           });
 
@@ -213,11 +248,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Refresh profile - แค่ใช้ mock
+  // Refresh profile - ดึงจาก database
   const refreshProfile = async () => {
     if (user) {
-      const mockProfile = createMockProfile(user);
-      setUserProfile(mockProfile);
+      const profile = await fetchUserProfile(user);
+      setUserProfile(profile);
     }
   };
 
