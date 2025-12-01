@@ -614,7 +614,7 @@ export default function BottlesPage() {
                       min="0"
                       step="0.01"
                       value={formData.price}
-                      onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) })}
+                      onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
                       required
                     />
@@ -629,7 +629,7 @@ export default function BottlesPage() {
                       min="0"
                       step="1"
                       value={formData.stock}
-                      onChange={(e) => setFormData({ ...formData, stock: parseInt(e.target.value) })}
+                      onChange={(e) => setFormData({ ...formData, stock: parseInt(e.target.value) || 0 })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
                       required
                     />
@@ -644,7 +644,7 @@ export default function BottlesPage() {
                       min="0"
                       step="1"
                       value={formData.min_stock}
-                      onChange={(e) => setFormData({ ...formData, min_stock: parseInt(e.target.value) })}
+                      onChange={(e) => setFormData({ ...formData, min_stock: parseInt(e.target.value) || 0 })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
                       required
                     />

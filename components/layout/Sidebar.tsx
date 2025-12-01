@@ -136,6 +136,12 @@ const menuSections: MenuSection[] = [
     title: 'รายงาน',
     items: [
       {
+        label: 'สรุปออเดอร์ที่ต้องส่ง',
+        href: '/reports/production-plan',
+        icon: <ClipboardList className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'operation']
+      },
+      {
         label: 'รายงานยอดขาย',
         href: '/reports/sales',
         icon: <BarChart3 className="w-5 h-5" />,

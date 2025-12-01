@@ -110,10 +110,42 @@ export async function GET(
     if (bottleIds.length > 0) {
       const { data } = await supabaseAdmin
         .from('bottle_types')
-        .select('id, size, stock, capacity_ml')
+        .select('id, size, stock, capacity_ml, price')
         .in('id', bottleIds);
       bottleTypes = data || [];
     }
+
+    // Fetch sellable products with their variations for this product
+    const { data: sellableProducts } = await supabaseAdmin
+      .from('sellable_products')
+      .select(`
+        id,
+        code,
+        name,
+        image,
+        product_id,
+        sellable_product_variations (
+          id,
+          bottle_type_id
+        )
+      `)
+      .eq('product_id', batch.product_id);
+
+    // Build a map of bottle_type_id -> sellable product for quick lookup
+    const sellableByBottleType: Record<string, { id: string; code: string; name: string; image: string | null }> = {};
+    sellableProducts?.forEach(sp => {
+      const variations = sp.sellable_product_variations as any[];
+      variations?.forEach(v => {
+        if (v.bottle_type_id) {
+          sellableByBottleType[v.bottle_type_id] = {
+            id: sp.id,
+            code: sp.code,
+            name: sp.name,
+            image: sp.image
+          };
+        }
+      });
+    });
 
     // Fetch recipes and raw materials
     const { data: recipes } = await supabaseAdmin
@@ -129,7 +161,8 @@ export async function GET(
       batch,
       product,
       bottle_types: bottleTypes,
-      recipes: recipes || []
+      recipes: recipes || [],
+      sellable_by_bottle_type: sellableByBottleType
     });
   } catch (error) {
     console.error('Error fetching batch:', error);
@@ -259,11 +292,14 @@ export async function PATCH(
           );
         }
 
-        // Deduct bottle stock
+        // Deduct bottle stock and calculate bottle cost
+        let calculatedBottleCost = 0;
+        let calculatedTotalVolumeMl = 0;
+
         for (const item of execData.actual_items) {
           const { data: bottle } = await supabaseAdmin
             .from('bottle_types')
-            .select('id, stock, size')
+            .select('id, stock, size, price, capacity_ml')
             .eq('id', item.bottle_type_id)
             .single();
 
@@ -278,6 +314,11 @@ export async function PATCH(
                 { status: 400 }
               );
             }
+
+            // Calculate bottle cost
+            const bottlePrice = bottle.price || 0;
+            calculatedBottleCost += bottlePrice * item.quantity;
+            calculatedTotalVolumeMl += (bottle.capacity_ml || 0) * item.quantity;
 
             await supabaseAdmin
               .from('bottle_types')
@@ -379,14 +420,20 @@ export async function PATCH(
         updateData.quality_images = execData.quality_images || [];
         updateData.execution_notes = execData.execution_notes;
 
-        if (costData) {
-          updateData.total_material_cost = costData.total_material_cost;
-          updateData.total_bottle_cost = costData.total_bottle_cost;
-          updateData.unit_cost_per_ml = costData.unit_cost_per_ml;
-          updateData.total_volume_ml = costData.total_volume_ml;
+        // Use costData from stored procedure, but always use calculated bottle cost
+        const finalBottleCost = calculatedBottleCost;
+        const finalTotalVolumeMl = calculatedTotalVolumeMl;
+        const finalMaterialCost = costData?.total_material_cost || 0;
+        const finalTotalCost = finalMaterialCost + finalBottleCost;
+        const finalUnitCostPerMl = finalTotalVolumeMl > 0 ? finalTotalCost / finalTotalVolumeMl : 0;
+
+        updateData.total_material_cost = finalMaterialCost;
+        updateData.total_bottle_cost = finalBottleCost;
+        updateData.total_volume_ml = finalTotalVolumeMl;
+        updateData.unit_cost_per_ml = finalUnitCostPerMl;
+        updateData.unit_cost = finalUnitCostPerMl; // backward compatibility
+        if (costData?.cost_breakdown) {
           updateData.cost_breakdown = costData.cost_breakdown;
-          // Keep old unit_cost for backward compatibility (optional)
-          updateData.unit_cost = costData.unit_cost_per_ml;
         }
 
         // Update batch first
@@ -402,16 +449,21 @@ export async function PATCH(
         // Create finished goods inventory
         for (const item of execData.actual_items) {
           const goodQuantity = item.quantity - (item.defects || 0);
-          if (goodQuantity > 0 && costData) {
-            // Get bottle capacity to calculate unit cost per bottle
+          if (goodQuantity > 0) {
+            // Get bottle capacity and price to calculate unit cost per bottle
             const { data: bottle } = await supabaseAdmin
               .from('bottle_types')
-              .select('capacity_ml')
+              .select('capacity_ml, price')
               .eq('id', item.bottle_type_id)
               .single();
 
             if (bottle) {
-              const unitCostPerBottle = costData.unit_cost_per_ml * bottle.capacity_ml;
+              // Unit cost per bottle = material cost per ml * capacity + bottle price
+              const materialCostPerBottle = finalUnitCostPerMl > 0
+                ? (finalMaterialCost / finalTotalVolumeMl) * bottle.capacity_ml
+                : 0;
+              const bottlePricePerUnit = bottle.price || 0;
+              const unitCostPerBottle = materialCostPerBottle + bottlePricePerUnit;
 
               await supabaseAdmin
                 .from('finished_goods')

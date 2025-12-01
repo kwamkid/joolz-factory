@@ -149,7 +149,7 @@ export default function ProductionPage() {
 
         <button
           onClick={() => router.push('/production/new')}
-          className="mt-4 sm:mt-0 bg-[#E9B308] text-[#00231F] px-6 py-3 rounded-lg font-semibold hover:bg-[#d4a307] transition-colors flex items-center justify-center gap-2 text-base"
+          className="bg-[#E9B308] text-[#00231F] px-6 py-3 rounded-lg font-semibold hover:bg-[#d4a307] transition-colors flex items-center justify-center gap-2 text-base mt-4 sm:mt-0"
         >
           <Plus className="w-5 h-5" />
           วางแผนการผลิต

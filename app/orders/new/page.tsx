@@ -45,7 +45,9 @@ interface Product {
   sellable_product_id: string;
   code: string;
   name: string;
+  image?: string;
   bottle_size?: string;
+  bottle_capacity_ml?: number;
   product_type: 'simple' | 'variation';
   default_price: number;
   discount_price?: number;
@@ -59,6 +61,7 @@ interface BranchProduct {
   product_code: string;
   product_name: string;
   bottle_size?: string;
+  bottle_capacity_ml?: number;
   quantity: number;
   unit_price: number;
   discount_percent: number;
@@ -141,16 +144,33 @@ export default function NewOrderPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const response = await fetch('/api/sellable-products', {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        }
-      });
+      // Fetch sellable products and bottle types in parallel using API routes
+      const [productsResponse, bottleTypesResponse] = await Promise.all([
+        fetch('/api/sellable-products', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        }),
+        fetch('/api/bottle-types', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        })
+      ]);
 
-      if (!response.ok) throw new Error('Failed to fetch products');
+      if (!productsResponse.ok) throw new Error('Failed to fetch products');
 
-      const result = await response.json();
+      const result = await productsResponse.json();
       const sellableProducts = result.sellable_products || [];
+
+      // Create bottle type lookup map from API response
+      const bottleTypeMap = new Map<string, { size: string; capacity_ml: number }>();
+      if (bottleTypesResponse.ok) {
+        const bottleTypesResult = await bottleTypesResponse.json();
+        (bottleTypesResult.bottle_types || []).forEach((bt: any) => {
+          bottleTypeMap.set(bt.id, { size: bt.size, capacity_ml: bt.capacity_ml });
+        });
+      }
 
       // Flatten variations into individual products
       const flatProducts: Product[] = [];
@@ -159,12 +179,16 @@ export default function NewOrderPage() {
         if (sp.product_type === 'simple') {
           // Simple products also have one variation row - get variation_id from variations[0]
           const variation_id = sp.variations && sp.variations.length > 0 ? sp.variations[0].variation_id : null;
+          const bottleTypeId = sp.simple_bottle_type_id || (sp.variations && sp.variations[0]?.bottle_type_id);
+          const bottleInfo = bottleTypeId ? bottleTypeMap.get(bottleTypeId) : null;
           flatProducts.push({
             id: variation_id || sp.sellable_product_id, // Use variation_id for foreign key
             sellable_product_id: sp.sellable_product_id,
             code: sp.code,
             name: sp.name,
+            image: sp.image,
             bottle_size: sp.simple_bottle_size,
+            bottle_capacity_ml: sp.simple_bottle_capacity_ml || bottleInfo?.capacity_ml,
             product_type: 'simple',
             default_price: sp.simple_default_price || 0,
             discount_price: sp.simple_discount_price || 0,
@@ -172,12 +196,15 @@ export default function NewOrderPage() {
           });
         } else {
           (sp.variations || []).forEach((v: any) => {
+            const bottleInfo = v.bottle_type_id ? bottleTypeMap.get(v.bottle_type_id) : null;
             flatProducts.push({
               id: v.variation_id,
               sellable_product_id: sp.sellable_product_id,
               code: `${sp.code}-${v.bottle_size}`,
-              name: `${sp.name} (${v.bottle_size})`,
+              name: sp.name,
+              image: sp.image,
               bottle_size: v.bottle_size,
+              bottle_capacity_ml: v.bottle_capacity_ml || bottleInfo?.capacity_ml,
               product_type: 'variation',
               default_price: v.default_price || 0,
               discount_price: v.discount_price || 0,
@@ -193,7 +220,7 @@ export default function NewOrderPage() {
     }
   };
 
-  const fetchShippingAddresses = async (customerId: string) => {
+  const fetchShippingAddresses = async (customerId: string, forceInit: boolean = true) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
@@ -210,7 +237,7 @@ export default function NewOrderPage() {
         setShippingAddresses(addresses);
 
         // Auto-initialize first branch if addresses exist
-        if (addresses.length > 0 && branchOrders.length === 0) {
+        if (addresses.length > 0 && forceInit) {
           const sortedAddresses = [...addresses].sort((a, b) =>
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
           );
@@ -237,6 +264,13 @@ export default function NewOrderPage() {
     setSelectedCustomer(customer);
     setCustomerSearch(customer.name);
     setShowCustomerDropdown(false);
+
+    // Reset branch orders when selecting a new customer
+    setBranchOrders([]);
+    setProductSearches([]);
+    setShowProductDropdowns([]);
+    setShippingAddresses([]);
+
     fetchShippingAddresses(customer.id);
 
     // Fetch customer's last prices
@@ -345,6 +379,7 @@ export default function NewOrderPage() {
       product_code: product.code,
       product_name: product.name,
       bottle_size: product.bottle_size,
+      bottle_capacity_ml: product.bottle_capacity_ml,
       quantity: 1,
       unit_price,
       discount_percent
@@ -622,6 +657,26 @@ export default function NewOrderPage() {
           )}
         </div>
 
+        {/* No Shipping Addresses Warning */}
+        {selectedCustomer && shippingAddresses.length === 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+            <div className="flex items-start gap-3">
+              <MapPin className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-yellow-800">ลูกค้านี้ยังไม่มีที่อยู่จัดส่ง</h3>
+                <p className="text-yellow-700 text-sm mt-1">กรุณาเพิ่มที่อยู่จัดส่งก่อนสร้างคำสั่งซื้อ</p>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/customers/${selectedCustomer.id}?tab=addresses`)}
+                  className="mt-3 bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                >
+                  ไปเพิ่มที่อยู่จัดส่ง
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Branch Orders */}
         {selectedCustomer && branchOrders.length > 0 && (
           <div className="bg-white rounded-lg border border-gray-200 p-6 overflow-visible">
@@ -728,11 +783,21 @@ export default function NewOrderPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {branch.products.map((product, productIndex) => (
+                      {branch.products.map((product, productIndex) => {
+                        // Format capacity for display
+                        const capacityDisplay = product.bottle_capacity_ml
+                          ? product.bottle_capacity_ml >= 1000
+                            ? `${product.bottle_capacity_ml / 1000}L`
+                            : `${product.bottle_capacity_ml}ml`
+                          : '';
+                        return (
                         <tr key={product.variation_id}>
                           <td className="px-4 py-3">
-                            <div className="font-medium">{product.product_name}</div>
-                            <div className="text-sm text-gray-500">{product.product_code}</div>
+                            <div className="font-medium">
+                              {product.product_name}
+                              {capacityDisplay && <span className="text-gray-500 font-normal ml-1">ขวด {capacityDisplay}</span>}
+                            </div>
+                            <div className="text-xs text-gray-400">{product.product_code}</div>
                           </td>
                           <td className="px-4 py-3 text-center">
                             <input
@@ -781,15 +846,16 @@ export default function NewOrderPage() {
                             </button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Add Product Search - Below table, aligned with product column */}
                 <div className="mt-4">
-                  <div className="relative inline-block w-auto min-w-[300px]">
-                    <div className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#E9B308] transition-colors bg-white">
+                  <div className="relative w-full max-w-lg">
+                    <div className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#E9B308] transition-colors bg-white">
                       <Plus className="w-5 h-5 text-gray-400 flex-shrink-0" />
                       <input
                         type="text"
@@ -817,11 +883,11 @@ export default function NewOrderPage() {
                           }, 200);
                         }}
                         placeholder="ค้นหาชื่อหรือรหัสสินค้า..."
-                        className="flex-1 min-w-[200px] outline-none bg-transparent"
+                        className="flex-1 outline-none bg-transparent text-sm"
                       />
                     </div>
                     {showProductDropdowns[branchIndex] && productSearches[branchIndex] && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-auto">
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-auto">
                         {products.filter(p =>
                           p.name.toLowerCase().includes(productSearches[branchIndex].toLowerCase()) ||
                           p.code.toLowerCase().includes(productSearches[branchIndex].toLowerCase())
@@ -833,19 +899,40 @@ export default function NewOrderPage() {
                               p.name.toLowerCase().includes(productSearches[branchIndex].toLowerCase()) ||
                               p.code.toLowerCase().includes(productSearches[branchIndex].toLowerCase())
                             )
-                            .map(product => (
-                              <button
-                                key={product.id}
-                                type="button"
-                                onClick={() => handleAddProductToBranch(branchIndex, product)}
-                                className="w-full px-4 py-2 text-left hover:bg-gray-50 transition-colors"
-                              >
-                                <div className="font-medium">{product.name}</div>
-                                <div className="text-sm text-gray-500">
-                                  {product.code} • คงเหลือ: {product.stock}
-                                </div>
-                              </button>
-                            ))
+                            .map(product => {
+                              // Format capacity: 1000ml -> 1L, otherwise show as ml
+                              const capacityDisplay = product.bottle_capacity_ml
+                                ? product.bottle_capacity_ml >= 1000
+                                  ? `${product.bottle_capacity_ml / 1000}L`
+                                  : `${product.bottle_capacity_ml}ml`
+                                : '';
+                              return (
+                                <button
+                                  key={product.id}
+                                  type="button"
+                                  onClick={() => handleAddProductToBranch(branchIndex, product)}
+                                  className="w-full px-3 py-2 text-left hover:bg-gray-50 transition-colors flex items-center gap-3"
+                                >
+                                  {product.image ? (
+                                    <img
+                                      src={product.image}
+                                      alt={product.name}
+                                      className="w-10 h-10 object-cover rounded-lg flex-shrink-0"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                      <Package className="w-5 h-5 text-gray-400" />
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium truncate">
+                                      {product.name} {capacityDisplay && <span className="text-gray-500 font-normal">ขวด {capacityDisplay}</span>}
+                                    </div>
+                                    <div className="text-xs text-gray-400">{product.code}</div>
+                                  </div>
+                                </button>
+                              );
+                            })
                         )}
                       </div>
                     )}

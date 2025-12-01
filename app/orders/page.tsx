@@ -43,34 +43,36 @@ interface Order {
 }
 
 // Status badge components
-function OrderStatusBadge({ status }: { status: string }) {
+function OrderStatusBadge({ status, clickable = false }: { status: string; clickable?: boolean }) {
   const statusConfig = {
-    new: { label: 'ใหม่', color: 'bg-blue-100 text-blue-700' },
-    shipping: { label: 'กำลังส่ง', color: 'bg-yellow-100 text-yellow-700' },
-    completed: { label: 'สำเร็จ', color: 'bg-green-100 text-green-700' },
-    cancelled: { label: 'ยกเลิก', color: 'bg-red-100 text-red-700' }
+    new: { label: 'ใหม่', color: 'bg-blue-100 text-blue-700', hoverColor: 'hover:bg-blue-200' },
+    shipping: { label: 'กำลังส่ง', color: 'bg-yellow-100 text-yellow-700', hoverColor: 'hover:bg-yellow-200' },
+    completed: { label: 'สำเร็จ', color: 'bg-green-100 text-green-700', hoverColor: '' },
+    cancelled: { label: 'ยกเลิก', color: 'bg-red-100 text-red-700', hoverColor: '' }
   };
 
   const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.new;
 
   return (
-    <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${config.color} ${clickable ? `${config.hoverColor} cursor-pointer transition-colors` : ''}`}>
       {config.label}
+      {clickable && <ChevronRight className="w-3 h-3" />}
     </span>
   );
 }
 
-function PaymentStatusBadge({ status }: { status: string }) {
+function PaymentStatusBadge({ status, clickable = false }: { status: string; clickable?: boolean }) {
   const statusConfig = {
-    pending: { label: 'รอชำระ', color: 'bg-orange-100 text-orange-700' },
-    paid: { label: 'ชำระแล้ว', color: 'bg-green-100 text-green-700' }
+    pending: { label: 'รอชำระ', color: 'bg-orange-100 text-orange-700', hoverColor: 'hover:bg-orange-200' },
+    paid: { label: 'ชำระแล้ว', color: 'bg-green-100 text-green-700', hoverColor: '' }
   };
 
   const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;
 
   return (
-    <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${config.color} ${clickable ? `${config.hoverColor} cursor-pointer transition-colors` : ''}`}>
       {config.label}
+      {clickable && <ChevronRight className="w-3 h-3" />}
     </span>
   );
 }
@@ -870,10 +872,9 @@ export default function OrdersPage() {
                         {getNextOrderStatus(order.order_status) ? (
                           <button
                             onClick={(e) => handleOrderStatusClick(e, order)}
-                            className="cursor-pointer hover:opacity-80 transition-opacity"
                             title={`คลิกเพื่อเปลี่ยนเป็น "${getOrderStatusLabel(getNextOrderStatus(order.order_status) || '')}"`}
                           >
-                            <OrderStatusBadge status={order.order_status} />
+                            <OrderStatusBadge status={order.order_status} clickable />
                           </button>
                         ) : (
                           <OrderStatusBadge status={order.order_status} />
@@ -885,10 +886,9 @@ export default function OrdersPage() {
                         {getNextPaymentStatus(order.payment_status) ? (
                           <button
                             onClick={(e) => handlePaymentStatusClick(e, order)}
-                            className="cursor-pointer hover:opacity-80 transition-opacity"
                             title={`คลิกเพื่อเปลี่ยนเป็น "${getPaymentStatusLabel(getNextPaymentStatus(order.payment_status) || '')}"`}
                           >
-                            <PaymentStatusBadge status={order.payment_status} />
+                            <PaymentStatusBadge status={order.payment_status} clickable />
                           </button>
                         ) : (
                           <PaymentStatusBadge status={order.payment_status} />

@@ -92,8 +92,6 @@ interface SellableProductFormData {
   bottle_type_id: string;
   default_price: number;
   discount_price: number;
-  stock: number;
-  min_stock: number;
 
   // Variation product fields
   variations: VariationFormData[];
@@ -104,8 +102,6 @@ interface VariationFormData {
   bottle_type_id: string;
   default_price: number;
   discount_price: number;
-  stock: number;
-  min_stock: number;
   is_active: boolean;
 }
 
@@ -140,6 +136,14 @@ export default function SellableProductsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // Generate sellable product code
+  const generateSellableCode = () => {
+    const prefix = 'SKU';
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const random = Math.random().toString(36).substring(2, 5).toUpperCase();
+    return `${prefix}-${timestamp}${random}`;
+  };
+
   // Form state
   const [formData, setFormData] = useState<SellableProductFormData>({
     product_id: '',
@@ -153,8 +157,6 @@ export default function SellableProductsPage() {
     bottle_type_id: '',
     default_price: 0,
     discount_price: 0,
-    stock: 0,
-    min_stock: 0,
     // Variation fields
     variations: []
   });
@@ -238,8 +240,6 @@ export default function SellableProductsPage() {
           bottle_type_id: '',
           default_price: 0,
           discount_price: 0,
-          stock: 0,
-          min_stock: 0,
           is_active: true
         }
       ]
@@ -365,7 +365,7 @@ export default function SellableProductsPage() {
   const resetForm = () => {
     setFormData({
       product_id: '',
-      code: '',
+      code: generateSellableCode(),
       name: '',
       description: '',
       image: '',
@@ -374,8 +374,6 @@ export default function SellableProductsPage() {
       bottle_type_id: '',
       default_price: 0,
       discount_price: 0,
-      stock: 0,
-      min_stock: 0,
       variations: []
     });
   };
@@ -428,8 +426,6 @@ export default function SellableProductsPage() {
         bottle_type_id: product.simple_bottle_type_id || '',
         default_price: product.simple_default_price || 0,
         discount_price: product.simple_discount_price || 0,
-        stock: product.simple_stock || 0,
-        min_stock: product.simple_min_stock || 0,
         variations: []
       });
     } else {
@@ -444,15 +440,11 @@ export default function SellableProductsPage() {
         bottle_type_id: '',
         default_price: 0,
         discount_price: 0,
-        stock: 0,
-        min_stock: 0,
         variations: product.variations.map(v => ({
           id: v.variation_id,
           bottle_type_id: v.bottle_type_id,
           default_price: v.default_price,
           discount_price: v.discount_price,
-          stock: v.stock,
-          min_stock: v.min_stock,
           is_active: v.is_active
         }))
       });
@@ -804,7 +796,7 @@ export default function SellableProductsPage() {
                   <div className="border-t pt-6">
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">ข้อมูลสินค้า</h3>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           ขวด *
@@ -824,55 +816,33 @@ export default function SellableProductsPage() {
                         </select>
                       </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          ราคาปกติ *
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={formData.default_price}
-                          onChange={(e) => setFormData({ ...formData, default_price: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
-                          required={formData.product_type === 'simple'}
-                        />
-                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            ราคาปกติ *
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={formData.default_price}
+                            onChange={(e) => setFormData({ ...formData, default_price: parseFloat(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
+                            required={formData.product_type === 'simple'}
+                          />
+                        </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          ราคาลด
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={formData.discount_price}
-                          onChange={(e) => setFormData({ ...formData, discount_price: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          สต็อก
-                        </label>
-                        <input
-                          type="number"
-                          value={formData.stock}
-                          onChange={(e) => setFormData({ ...formData, stock: parseInt(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          สต็อกขั้นต่ำ
-                        </label>
-                        <input
-                          type="number"
-                          value={formData.min_stock}
-                          onChange={(e) => setFormData({ ...formData, min_stock: parseInt(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
-                        />
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            ราคาลด
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={formData.discount_price}
+                            onChange={(e) => setFormData({ ...formData, discount_price: parseFloat(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -957,30 +927,6 @@ export default function SellableProductsPage() {
                                     step="0.01"
                                     value={variation.discount_price}
                                     onChange={(e) => updateVariation(index, 'discount_price', parseFloat(e.target.value) || 0)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    สต็อก
-                                  </label>
-                                  <input
-                                    type="number"
-                                    value={variation.stock}
-                                    onChange={(e) => updateVariation(index, 'stock', parseInt(e.target.value) || 0)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    สต็อกขั้นต่ำ
-                                  </label>
-                                  <input
-                                    type="number"
-                                    value={variation.min_stock}
-                                    onChange={(e) => updateVariation(index, 'min_stock', parseInt(e.target.value) || 0)}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
                                   />
                                 </div>

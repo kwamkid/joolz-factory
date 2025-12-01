@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 import {
   Factory, ArrowLeft, AlertTriangle, Package,
   Play, CheckCircle, XCircle, Clock, Calendar,
-  Beaker, Camera, Plus, Minus, Save, Trash2
+  Beaker, Camera, Plus, Minus, Save, Trash2, Leaf, Wine
 } from 'lucide-react';
 import Layout from '@/components/layout/Layout';
 import { getImageUrl } from '@/lib/utils/image';
@@ -34,6 +34,7 @@ interface BottleType {
   size: string;
   stock: number;
   capacity_ml: number;
+  price: number;
 }
 
 interface RawMaterial {
@@ -85,6 +86,13 @@ interface Product {
   image?: string;
 }
 
+interface SellableProduct {
+  id: string;
+  code: string;
+  name: string;
+  image: string | null;
+}
+
 export default function ProductionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const router = useRouter();
@@ -94,6 +102,7 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
   const [product, setProduct] = useState<Product | null>(null);
   const [bottleTypes, setBottleTypes] = useState<BottleType[]>([]);
   const [recipes, setRecipes] = useState<ProductRecipe[]>([]);
+  const [sellableByBottleType, setSellableByBottleType] = useState<Record<string, SellableProduct>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +137,7 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
         setProduct(data.product);
         setBottleTypes(data.bottle_types || []);
         setRecipes(data.recipes || []);
+        setSellableByBottleType(data.sellable_by_bottle_type || {});
 
         // Initialize actual items from planned items
         if (data.batch.planned_items) {
@@ -502,9 +512,10 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
             </div>
           </div>
 
-          {/* Material Requirements */}
-          <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          {/* Material Requirements - Enhanced Display */}
+          <div className="bg-gradient-to-br from-[#00231F] to-[#003d36] rounded-lg shadow-lg p-6">
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Leaf className="w-5 h-5 text-[#E9B308]" />
               {batch.status === 'completed' ? 'วัตถุดิบ (แผน vs ใช้จริง)' : 'วัตถุดิบที่ต้องใช้'}
             </h2>
 
@@ -513,6 +524,8 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                 {recipes.map((recipe) => {
                   const material = recipe.raw_materials;
                   const required = recipe.quantity_per_unit * totalVolume;
+                  const currentStock = material?.current_stock || 0;
+                  const isSufficient = currentStock >= required;
                   const actualMaterial = batch.actual_materials?.find(
                     (m: ActualMaterial) => m.material_id === recipe.raw_material_id
                   );
@@ -520,46 +533,123 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                   const diff = actualUsed - required;
                   const diffPercent = required > 0 ? ((diff / required) * 100) : 0;
 
-                  return (
-                    <div key={recipe.raw_material_id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                      <div className="bg-gray-100 px-4 py-2 font-semibold text-gray-900">{material?.name}</div>
-
-                      {batch.status === 'completed' && actualMaterial ? (
-                        <div className="grid grid-cols-3 gap-0 text-sm">
-                          <div className="bg-blue-50 p-4 border-r border-gray-200">
-                            <div className="text-gray-600 mb-1 text-xs">แผน</div>
-                            <div className="font-bold text-blue-700 text-lg">
-                              {required.toFixed(2)} {material?.unit}
-                            </div>
-                          </div>
-                          <div className="bg-green-50 p-4 border-r border-gray-200">
-                            <div className="text-gray-600 mb-1 text-xs">ใช้จริง</div>
-                            <div className="font-bold text-green-700 text-lg">
-                              {actualUsed.toFixed(2)} {material?.unit}
-                            </div>
-                          </div>
-                          <div className="bg-gray-50 p-4">
-                            <div className="text-gray-600 mb-1 text-xs">ส่วนต่าง</div>
-                            <div className={`font-bold text-lg ${diff >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                              {diff >= 0 ? '+' : ''}{diff.toFixed(2)}
-                              <span className="text-xs ml-1">({diffPercent.toFixed(1)}%)</span>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="p-4">
-                          <div className="text-gray-600 mb-1 text-xs">จำนวนที่ต้องใช้</div>
-                          <div className="font-bold text-gray-900 text-lg">
+                  return batch.status === 'completed' && actualMaterial ? (
+                    <div key={recipe.raw_material_id} className="bg-white/10 backdrop-blur rounded-lg border border-white/20 overflow-hidden">
+                      <div className="px-4 py-2 font-semibold text-white border-b border-white/20">{material?.name}</div>
+                      <div className="grid grid-cols-3 gap-0 text-sm">
+                        <div className="p-4 border-r border-white/20">
+                          <div className="text-white/60 mb-1 text-xs">แผน</div>
+                          <div className="font-bold text-[#E9B308] text-lg">
                             {required.toFixed(2)} {material?.unit}
                           </div>
                         </div>
-                      )}
+                        <div className="p-4 border-r border-white/20">
+                          <div className="text-white/60 mb-1 text-xs">ใช้จริง</div>
+                          <div className="font-bold text-green-400 text-lg">
+                            {actualUsed.toFixed(2)} {material?.unit}
+                          </div>
+                        </div>
+                        <div className="p-4">
+                          <div className="text-white/60 mb-1 text-xs">ส่วนต่าง</div>
+                          <div className={`font-bold text-lg ${diff >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                            {diff >= 0 ? '+' : ''}{diff.toFixed(2)}
+                            <span className="text-xs ml-1">({diffPercent.toFixed(1)}%)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      key={recipe.raw_material_id}
+                      className={`flex justify-between items-center p-4 backdrop-blur rounded-lg border ${
+                        isSufficient
+                          ? 'bg-white/10 border-white/20'
+                          : 'bg-red-500/20 border-red-400/50'
+                      }`}
+                    >
+                      <div>
+                        <p className="font-semibold text-white text-base">{material?.name}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-white/60">มีอยู่:</span>
+                          <span className={`text-sm font-medium ${isSufficient ? 'text-green-400' : 'text-red-400'}`}>
+                            {currentStock.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {material?.unit}
+                          </span>
+                          {!isSufficient && (
+                            <span className="text-xs text-red-400">
+                              (ขาด {(required - currentStock).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                            </span>
+                          )}
+                        </div>
+                        {userProfile?.role === 'admin' && material?.average_price && (
+                          <p className="text-xs text-white/60 mt-1">
+                            ฿{material.average_price.toFixed(2)}/{material?.unit}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-white/60">ต้องใช้</p>
+                        <p className={`text-xl font-bold ${isSufficient ? 'text-[#E9B308]' : 'text-red-400'}`}>
+                          {required.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        <p className="text-sm text-white/80">{material?.unit}</p>
+                      </div>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <p className="text-gray-500 text-sm">ยังไม่มีสูตรวัตถุดิบ</p>
+              <p className="text-white/60 text-center py-4">ยังไม่มีสูตรวัตถุดิบ</p>
+            )}
+
+            {/* Bottles Section */}
+            {batch.planned_items && batch.planned_items.length > 0 && batch.status !== 'completed' && (
+              <>
+                <h2 className="text-lg font-semibold text-white mt-6 mb-4 flex items-center gap-2">
+                  <Wine className="w-5 h-5 text-[#E9B308]" />
+                  ขวดที่ต้องใช้
+                </h2>
+                <div className="space-y-3">
+                  {batch.planned_items.map((plannedItem) => {
+                    const bottle = bottleTypes.find(b => b.id === plannedItem.bottle_type_id);
+                    const currentStock = bottle?.stock || 0;
+                    const isSufficient = currentStock >= plannedItem.quantity;
+
+                    return (
+                      <div
+                        key={plannedItem.bottle_type_id}
+                        className={`flex justify-between items-center p-4 backdrop-blur rounded-lg border ${
+                          isSufficient
+                            ? 'bg-white/10 border-white/20'
+                            : 'bg-red-500/20 border-red-400/50'
+                        }`}
+                      >
+                        <div>
+                          <p className="font-semibold text-white text-base">{bottle?.size}</p>
+                          <p className="text-xs text-white/60">{bottle?.capacity_ml} ml</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-white/60">มีอยู่:</span>
+                            <span className={`text-sm font-medium ${isSufficient ? 'text-green-400' : 'text-red-400'}`}>
+                              {currentStock.toLocaleString()} ขวด
+                            </span>
+                            {!isSufficient && (
+                              <span className="text-xs text-red-400">
+                                (ขาด {(plannedItem.quantity - currentStock).toLocaleString()})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-white/60">ต้องใช้</p>
+                          <p className={`text-xl font-bold ${isSufficient ? 'text-[#E9B308]' : 'text-red-400'}`}>
+                            {plannedItem.quantity.toLocaleString()}
+                          </p>
+                          <p className="text-sm text-white/80">ขวด</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -567,67 +657,132 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
         {/* Right Column - Execution Form */}
         <div className="space-y-6">
           {/* Planned Output - For Planned Status */}
-          {batch.status === 'planned' && (
-            <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">สินค้าพร้อมขายที่วางแผน</h2>
-              <div className="space-y-3">
-                {batch.planned_items.map((plannedItem) => {
-                  const bottle = bottleTypes.find(b => b.id === plannedItem.bottle_type_id);
-                  return (
-                    <div key={plannedItem.bottle_type_id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                      <div className="bg-gray-100 px-4 py-2 font-semibold text-gray-900">{bottle?.size}</div>
-                      <div className="p-4">
-                        <div className="flex justify-between items-baseline">
-                          <div className="text-gray-600 text-sm">จำนวนที่วางแผน</div>
-                          <div className="font-bold text-[#E9B308] text-2xl">{plannedItem.quantity.toLocaleString()} ขวด</div>
-                        </div>
-                        <div className="flex justify-between items-baseline mt-2 pt-2 border-t border-gray-200">
-                          <div className="text-gray-600 text-xs">ปริมาตร</div>
-                          <div className="text-gray-900 text-sm font-medium">
-                            {((bottle?.capacity_ml || 0) * plannedItem.quantity / 1000).toFixed(2)} ลิตร
+          {batch.status === 'planned' && (() => {
+            // Check if all materials and bottles are sufficient
+            const materialsInsufficient = recipes.some(recipe => {
+              const required = recipe.quantity_per_unit * totalVolume;
+              const currentStock = recipe.raw_materials?.current_stock || 0;
+              return currentStock < required;
+            });
+
+            const bottlesInsufficient = batch.planned_items.some(item => {
+              const bottle = bottleTypes.find(b => b.id === item.bottle_type_id);
+              const currentStock = bottle?.stock || 0;
+              return currentStock < item.quantity;
+            });
+
+            const canStartProduction = !materialsInsufficient && !bottlesInsufficient;
+
+            return (
+              <>
+                <div className="bg-gradient-to-br from-[#E9B308]/10 to-[#E9B308]/5 border-2 border-[#E9B308] rounded-lg shadow-lg p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Package className="w-5 h-5 text-[#E9B308]" />
+                    สินค้าพร้อมขายที่ต้องผลิต
+                  </h2>
+                  <div className="space-y-3">
+                    {batch.planned_items.map((plannedItem) => {
+                      const bottle = bottleTypes.find(b => b.id === plannedItem.bottle_type_id);
+                      const sellable = sellableByBottleType[plannedItem.bottle_type_id];
+                      const displayImage = sellable?.image || product?.image;
+                      const displayName = sellable?.name || product?.name;
+                      return (
+                        <div key={plannedItem.bottle_type_id} className="bg-white rounded-lg border border-[#E9B308]/30 overflow-hidden shadow">
+                          <div className="p-4">
+                            <div className="flex items-center gap-4">
+                              {/* Sellable Product Image */}
+                              {displayImage ? (
+                                <img
+                                  src={getImageUrl(displayImage)}
+                                  alt={displayName || ''}
+                                  className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
+                                />
+                              ) : (
+                                <div className="w-16 h-16 bg-[#E9B308]/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                                  <Package className="w-8 h-8 text-[#E9B308]" />
+                                </div>
+                              )}
+                              {/* Product Info */}
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-gray-900 text-lg">{displayName}</p>
+                                {sellable?.code && (
+                                  <p className="text-xs text-gray-500">{sellable.code}</p>
+                                )}
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Wine className="w-4 h-4 text-[#E9B308]" />
+                                  <span className="text-gray-700 font-medium">{bottle?.size}</span>
+                                  <span className="text-gray-500">({bottle?.capacity_ml} ml)</span>
+                                </div>
+                              </div>
+                              {/* Quantity */}
+                              <div className="text-right flex-shrink-0">
+                                <div className="font-bold text-[#E9B308] text-3xl">{plannedItem.quantity.toLocaleString()}</div>
+                                <div className="text-gray-500 text-sm">ขวด</div>
+                              </div>
+                            </div>
                           </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Summary */}
+                  <div className="mt-4 pt-4 border-t-2 border-[#E9B308]/50">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700 font-semibold text-lg">รวมทั้งหมด</span>
+                      <div className="text-right">
+                        <div className="text-3xl font-bold text-[#E9B308]">{totalPlannedBottles.toLocaleString()} <span className="text-lg">ขวด</span></div>
+                        <div className="text-sm text-gray-500">{totalVolume.toFixed(2)} ลิตร</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons for Planned Status */}
+                <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">ดำเนินการ</h2>
+
+                  {/* Warning if insufficient */}
+                  {!canStartProduction && (
+                    <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-medium text-red-700">ไม่สามารถเริ่มผลิตได้</p>
+                          <ul className="mt-1 text-sm text-red-600 list-disc list-inside">
+                            {materialsInsufficient && <li>วัตถุดิบไม่เพียงพอ</li>}
+                            {bottlesInsufficient && <li>ขวดไม่เพียงพอ</li>}
+                          </ul>
+                          <p className="mt-2 text-sm text-red-600">กรุณาซื้อวัตถุดิบ/ขวดเพิ่มก่อนเริ่มผลิต</p>
                         </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                  )}
 
-              {/* Summary */}
-              <div className="mt-4 pt-4 border-t border-gray-200">
-                <div className="flex justify-between items-baseline">
-                  <span className="text-gray-700 font-medium">รวมทั้งหมด</span>
-                  <div className="text-right">
-                    <div className="text-xl font-bold text-gray-900">{totalPlannedBottles.toLocaleString()} ขวด</div>
-                    <div className="text-sm text-gray-600">{totalVolume.toFixed(2)} ลิตร</div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleStart}
+                      disabled={submitting || !canStartProduction}
+                      className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 ${
+                        canStartProduction
+                          ? 'bg-[#E9B308] text-[#00231F] hover:bg-[#d4a307]'
+                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      } disabled:opacity-50`}
+                    >
+                      <Play className="w-5 h-5" />
+                      เริ่มผลิต
+                    </button>
+                    <button
+                      onClick={() => setShowCancelModal(true)}
+                      className="px-4 py-3 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                    >
+                      ยกเลิก
+                    </button>
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* Action Buttons for Planned Status */}
-          {batch.status === 'planned' && (
-            <div className="bg-white border border-gray-200 rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">ดำเนินการ</h2>
-              <div className="flex gap-3">
-                <button
-                  onClick={handleStart}
-                  disabled={submitting}
-                  className="flex-1 bg-[#E9B308] text-[#00231F] px-4 py-3 rounded-lg font-semibold hover:bg-[#d4a307] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  <Play className="w-5 h-5" />
-                  เริ่มผลิต
-                </button>
-                <button
-                  onClick={() => setShowCancelModal(true)}
-                  className="px-4 py-3 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
-                >
-                  ยกเลิก
-                </button>
-              </div>
-            </div>
-          )}
+              </>
+            );
+          })()}
 
           {/* Execution Form for In Progress Status */}
           {batch.status === 'in_progress' && (
@@ -639,9 +794,34 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                 <div className="space-y-4">
                   {actualItems.map((item) => {
                     const bottle = bottleTypes.find(b => b.id === item.bottle_type_id);
+                    const sellable = sellableByBottleType[item.bottle_type_id];
+                    const displayImage = sellable?.image || product?.image;
+                    const displayName = sellable?.name || product?.name;
                     return (
-                      <div key={item.bottle_type_id} className="bg-gray-50 p-3 rounded-lg">
-                        <p className="font-medium text-gray-900 mb-2">{bottle?.size}</p>
+                      <div key={item.bottle_type_id} className="bg-gray-50 p-4 rounded-lg">
+                        {/* Product Info */}
+                        <div className="flex items-center gap-3 mb-3 pb-3 border-b border-gray-200">
+                          {displayImage ? (
+                            <img
+                              src={getImageUrl(displayImage)}
+                              alt={displayName || ''}
+                              className="w-12 h-12 object-cover rounded-lg flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <Package className="w-6 h-6 text-gray-400" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900">{displayName}</p>
+                            <div className="flex items-center gap-2 text-sm text-gray-500">
+                              <Wine className="w-3.5 h-3.5" />
+                              <span>{bottle?.size}</span>
+                              <span>({bottle?.capacity_ml} ml)</span>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Inputs */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <label className="text-xs text-gray-500">จำนวนที่ผลิตได้</label>
@@ -799,6 +979,9 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                     {batch.planned_items.map((plannedItem) => {
                       const actualItem = batch.actual_items?.find(a => a.bottle_type_id === plannedItem.bottle_type_id);
                       const bottle = bottleTypes.find(b => b.id === plannedItem.bottle_type_id);
+                      const sellable = sellableByBottleType[plannedItem.bottle_type_id];
+                      const displayImage = sellable?.image || product?.image;
+                      const displayName = sellable?.name || product?.name;
                       const goodQuantity = actualItem ? actualItem.quantity - actualItem.defects : 0;
                       const defects = actualItem?.defects || 0;
                       const totalActual = actualItem?.quantity || 0;
@@ -807,7 +990,28 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
 
                       return (
                         <div key={plannedItem.bottle_type_id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                          <div className="bg-gray-100 px-4 py-2 font-semibold text-gray-900">{bottle?.size}</div>
+                          {/* Product Info Header */}
+                          <div className="bg-gray-100 px-4 py-3 flex items-center gap-3">
+                            {displayImage ? (
+                              <img
+                                src={getImageUrl(displayImage)}
+                                alt={displayName || ''}
+                                className="w-10 h-10 object-cover rounded-lg flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <Package className="w-5 h-5 text-gray-400" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-gray-900">{displayName}</p>
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <Wine className="w-3 h-3" />
+                                <span>{bottle?.size}</span>
+                                <span>({bottle?.capacity_ml} ml)</span>
+                              </div>
+                            </div>
+                          </div>
 
                           <div className="grid grid-cols-3 gap-0 text-sm">
                             <div className="bg-blue-50 p-4 border-r border-gray-200">
@@ -850,7 +1054,7 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                 const materialCost = typeof batch.total_material_cost === 'string'
                   ? parseFloat(batch.total_material_cost)
                   : (batch.total_material_cost || 0);
-                const bottleCost = typeof batch.total_bottle_cost === 'string'
+                let bottleCost = typeof batch.total_bottle_cost === 'string'
                   ? parseFloat(batch.total_bottle_cost)
                   : (batch.total_bottle_cost || 0);
                 const unitCostPerMl = typeof batch.unit_cost_per_ml === 'string'
@@ -859,6 +1063,15 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                 const totalVolumeMl = typeof batch.total_volume_ml === 'string'
                   ? parseFloat(batch.total_volume_ml)
                   : (batch.total_volume_ml || 0);
+
+                // If bottle cost is 0 but we have actual_items with bottle prices, calculate it on-the-fly
+                if (bottleCost === 0 && batch.actual_items && batch.actual_items.length > 0) {
+                  bottleCost = batch.actual_items.reduce((sum: number, item: ActualItem) => {
+                    const bottle = bottleTypes.find(b => b.id === item.bottle_type_id);
+                    const goodQty = item.quantity - item.defects;
+                    return sum + ((bottle?.price || 0) * goodQty);
+                  }, 0);
+                }
 
                 const hasCostData = materialCost > 0 || bottleCost > 0 || unitCostPerMl > 0;
 
@@ -909,27 +1122,45 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                       </div>
 
                       {/* Unit Cost per Bottle Type */}
-                      {batch.actual_items && unitCostPerMl > 0 && (
+                      {batch.actual_items && (
                         <div className="bg-white rounded-lg p-3 border border-gray-200">
                           <div className="text-sm font-medium text-gray-700 mb-2">ต้นทุนต่อหน่วย (แต่ละขนาด)</div>
-                          <div className="space-y-2">
+                          <div className="space-y-3">
                             {batch.actual_items.map((item: ActualItem) => {
                               const bottle = bottleTypes.find(b => b.id === item.bottle_type_id);
+                              const sellable = sellableByBottleType[item.bottle_type_id];
+                              const displayName = sellable?.name || product?.name;
                               const goodQty = item.quantity - item.defects;
-                              const unitCostPerBottle = unitCostPerMl * (bottle?.capacity_ml || 0);
-                              const costPerType = goodQty * unitCostPerBottle;
+                              const materialCostPerBottle = unitCostPerMl * (bottle?.capacity_ml || 0);
+                              const bottleCostPerUnit = bottle?.price || 0;
+                              const totalCostPerBottle = materialCostPerBottle + bottleCostPerUnit;
+                              const totalCostPerType = goodQty * totalCostPerBottle;
                               return (
-                                <div key={item.bottle_type_id} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
-                                  <span className="text-gray-700">
-                                    {bottle?.size} <span className="text-xs text-gray-500">({bottle?.capacity_ml} ml)</span>
-                                  </span>
-                                  <div className="text-right">
-                                    <div className="font-semibold text-gray-900">
-                                      ฿{unitCostPerBottle.toFixed(2)}/ขวด
+                                <div key={item.bottle_type_id} className="bg-gray-50 rounded-lg p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div>
+                                      <span className="font-medium text-gray-900">{displayName}</span>
+                                      <span className="text-xs text-gray-500 ml-2">({bottle?.size} - {bottle?.capacity_ml} ml)</span>
                                     </div>
-                                    <div className="text-xs text-gray-500">
-                                      {goodQty} ขวด = ฿{costPerType.toFixed(2)}
+                                    <span className="text-xs text-gray-500">{goodQty} ขวด</span>
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-2 text-xs">
+                                    <div className="bg-white rounded p-2 border border-gray-200">
+                                      <div className="text-gray-500 mb-0.5">วัตถุดิบ</div>
+                                      <div className="font-semibold text-gray-700">฿{materialCostPerBottle.toFixed(2)}</div>
                                     </div>
+                                    <div className="bg-white rounded p-2 border border-gray-200">
+                                      <div className="text-gray-500 mb-0.5">ขวด</div>
+                                      <div className="font-semibold text-gray-700">฿{bottleCostPerUnit.toFixed(2)}</div>
+                                    </div>
+                                    <div className="bg-[#E9B308]/10 rounded p-2 border border-[#E9B308]/30">
+                                      <div className="text-gray-600 mb-0.5">รวม/ขวด</div>
+                                      <div className="font-bold text-[#E9B308]">฿{totalCostPerBottle.toFixed(2)}</div>
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 pt-2 border-t border-gray-200 flex justify-between items-center">
+                                    <span className="text-xs text-gray-500">ต้นทุนรวม ({goodQty} ขวด)</span>
+                                    <span className="font-semibold text-gray-900">฿{totalCostPerType.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                                   </div>
                                 </div>
                               );

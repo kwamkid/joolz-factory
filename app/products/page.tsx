@@ -129,6 +129,14 @@ export default function ProductsPage() {
     ingredients: []
   });
 
+  // Generate product code
+  const generateProductCode = () => {
+    const prefix = 'PRD';
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const random = Math.random().toString(36).substring(2, 5).toUpperCase();
+    return `${prefix}-${timestamp}${random}`;
+  };
+
   // Fetch products function
   const fetchProducts = useCallback(async () => {
     if (dataFetched) return;
@@ -513,7 +521,7 @@ export default function ProductsPage() {
           onClick={() => {
             setEditingProduct(null);
             setFormData({
-              code: '',
+              code: generateProductCode(),
               name: '',
               description: '',
               category: '',
