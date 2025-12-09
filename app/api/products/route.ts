@@ -18,9 +18,16 @@ interface ProductData {
 }
 
 // สร้าง Supabase Admin client (service role)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+// Debug: ตรวจสอบว่า service role key ถูกโหลดหรือไม่
+console.log('Supabase URL:', supabaseUrl ? 'OK' : 'MISSING');
+console.log('Service Role Key:', serviceRoleKey ? `OK (length: ${serviceRoleKey.length})` : 'MISSING');
+
 const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  supabaseUrl,
+  serviceRoleKey,
   {
     auth: {
       autoRefreshToken: false,
