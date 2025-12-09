@@ -238,7 +238,7 @@ export default function ProductionPage() {
                       <Calendar className="w-5 h-5 text-blue-600" />
                     </div>
                     <div>
-                      <p className="text-xs text-gray-500">วันที่วางแผน</p>
+                      <p className="text-xs text-gray-500">วันที่ต้องผลิต</p>
                       <p className="font-semibold text-gray-900">
                         {new Date(batch.planned_date).toLocaleDateString('th-TH', {
                           day: 'numeric',
@@ -313,9 +313,6 @@ export default function ProductionPage() {
                       สินค้า
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      วันที่วางแผน
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       จำนวนขวด
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -334,8 +331,9 @@ export default function ProductionPage() {
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-semibold text-gray-900">{batch.batch_id}</div>
-                        <div className="text-xs text-gray-500">
-                          {new Date(batch.created_at).toLocaleDateString('th-TH', {
+                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                          <Calendar className="w-3 h-3" />
+                          {new Date(batch.planned_date).toLocaleDateString('th-TH', {
                             day: 'numeric',
                             month: 'short',
                             year: 'numeric'
@@ -358,16 +356,6 @@ export default function ProductionPage() {
                           <div>
                             <div className="text-sm font-medium text-gray-900">{batch.products?.name}</div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5 text-sm text-gray-900">
-                          <Calendar className="w-4 h-4 text-gray-400" />
-                          {new Date(batch.planned_date).toLocaleDateString('th-TH', {
-                            day: 'numeric',
-                            month: 'long',
-                            year: 'numeric'
-                          })}
                         </div>
                       </td>
                       <td className="px-6 py-4">
