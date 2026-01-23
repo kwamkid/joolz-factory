@@ -34,29 +34,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Fetch user profile from database
-  const fetchUserProfile = async (authUser: User): Promise<UserProfile> => {
+  // Fetch user profile via API (bypasses RLS)
+  const fetchUserProfile = async (authUser: User, accessToken?: string): Promise<UserProfile> => {
     try {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', authUser.id)
-        .single();
-
-      if (error || !data) {
-        console.log('No profile found in DB, creating default profile');
-        // Fallback: ถ้าไม่มีใน DB ให้ใช้ default
-        const isAdmin = authUser.email === 'kwamkid@gmail.com';
-        return {
-          id: authUser.id,
-          email: authUser.email || '',
-          name: authUser.email?.split('@')[0] || 'User',
-          role: isAdmin ? 'admin' : 'operation',
-          isActive: true,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
+      // Get token if not provided
+      let token = accessToken;
+      if (!token) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        token = sessionData.session?.access_token;
       }
+
+      if (!token) {
+        console.log('No access token available');
+        throw new Error('No access token');
+      }
+
+      // Fetch profile via API
+      const response = await fetch('/api/auth/me', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.profile) {
+        console.log('API error or no profile:', result.error);
+        throw new Error(result.error || 'Failed to fetch profile');
+      }
+
+      const data = result.profile;
 
       // Map database fields to UserProfile
       return {
@@ -72,11 +80,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Error fetching user profile:', error);
       // Fallback on error
+      const isAdmin = authUser.email === 'kwamkid@gmail.com';
       return {
         id: authUser.id,
         email: authUser.email || '',
         name: authUser.email?.split('@')[0] || 'User',
-        role: 'operation',
+        role: isAdmin ? 'admin' : 'operation',
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -107,10 +116,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setSession(session);
           setUser(session.user);
 
-          // ดึง profile จาก database
-          const profile = await fetchUserProfile(session.user);
+          // ดึง profile ผ่าน API
+          const profile = await fetchUserProfile(session.user, session.access_token);
           setUserProfile(profile);
-          console.log('Loaded profile from DB:', profile);
+          console.log('Loaded profile from API:', profile);
         } else {
           console.log('No session found');
         }
@@ -156,7 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               return prev; // No change needed
             }
             // Only update profile if user actually changed
-            fetchUserProfile(currentSession.user).then(profile => {
+            fetchUserProfile(currentSession.user, currentSession.access_token).then(profile => {
               setUserProfile(profile);
             });
             return currentSession.user;
@@ -254,10 +263,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Refresh profile - ดึงจาก database
+  // Refresh profile - ดึงผ่าน API
   const refreshProfile = async () => {
-    if (user) {
-      const profile = await fetchUserProfile(user);
+    if (user && session) {
+      const profile = await fetchUserProfile(user, session.access_token);
       setUserProfile(profile);
     }
   };
