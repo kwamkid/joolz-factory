@@ -92,13 +92,37 @@ export default function StockManagementPage() {
     try {
       setLoading(true);
 
-      // Fetch raw materials
-      const { data: materialsData, error: materialsError } = await supabase
-        .from('raw_materials')
-        .select('id, name, unit, current_stock, min_stock, image')
-        .order('current_stock', { ascending: false }); // Sort by stock descending
+      // Get session for API calls
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authHeaders = {
+        'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+      };
 
-      if (materialsError) throw materialsError;
+      // Fetch raw materials via API
+      const materialsResponse = await fetch('/api/raw-materials', {
+        method: 'GET',
+        headers: authHeaders
+      });
+
+      const materialsResult = await materialsResponse.json();
+
+      if (!materialsResponse.ok) {
+        throw new Error(materialsResult.error || 'Failed to fetch raw materials');
+      }
+
+      const materialsData = materialsResult.materials || [];
+
+      // Sort by stock descending
+      materialsData.sort((a: RawMaterial, b: RawMaterial) => b.current_stock - a.current_stock);
+
+      // Fetch all transactions to calculate averages (limit to recent ones)
+      const transactionsResponse = await fetch('/api/stock-transactions', {
+        method: 'GET',
+        headers: authHeaders
+      });
+
+      const transactionsResult = await transactionsResponse.json();
+      const allTransactions = transactionsResult.transactions || [];
 
       // Calculate date ranges
       const now = new Date();
@@ -106,69 +130,55 @@ export default function StockManagementPage() {
       const date3m = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
       const date1y = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
 
-      // Fetch last transaction and average prices for each material
-      const materialsWithDetails = await Promise.all(
-        (materialsData || []).map(async (material) => {
-          // Get last transaction
-          const { data: lastTx } = await supabase
-            .from('stock_transactions')
-            .select('transaction_type, quantity, created_at')
-            .eq('raw_material_id', material.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
+      // Calculate weighted average prices
+      const calculateAvgPrice = (transactions: any[]) => {
+        if (!transactions || transactions.length === 0) return undefined;
+        const totalValue = transactions.reduce((sum, tx) => sum + (tx.unit_price * tx.quantity), 0);
+        const totalQty = transactions.reduce((sum, tx) => sum + tx.quantity, 0);
+        return totalQty > 0 ? totalValue / totalQty : undefined;
+      };
 
-          // Get average price for last 30 days
-          const { data: tx30d } = await supabase
-            .from('stock_transactions')
-            .select('unit_price, quantity')
-            .eq('raw_material_id', material.id)
-            .eq('transaction_type', 'in')
-            .gte('created_at', date30d.toISOString())
-            .not('unit_price', 'is', null)
-            .gt('unit_price', 0);
+      // Process each material with transaction data
+      const materialsWithDetails = materialsData.map((material: RawMaterial) => {
+        // Filter transactions for this material
+        const materialTxs = allTransactions.filter(
+          (tx: StockTransaction) => tx.raw_material_id === material.id
+        );
 
-          // Get average price for last 3 months
-          const { data: tx3m } = await supabase
-            .from('stock_transactions')
-            .select('unit_price, quantity')
-            .eq('raw_material_id', material.id)
-            .eq('transaction_type', 'in')
-            .gte('created_at', date3m.toISOString())
-            .not('unit_price', 'is', null)
-            .gt('unit_price', 0);
+        // Get last transaction
+        const lastTx = materialTxs.length > 0 ? materialTxs[0] : null; // Already sorted by created_at desc
 
-          // Get average price for last 1 year
-          const { data: tx1y } = await supabase
-            .from('stock_transactions')
-            .select('unit_price, quantity')
-            .eq('raw_material_id', material.id)
-            .eq('transaction_type', 'in')
-            .gte('created_at', date1y.toISOString())
-            .not('unit_price', 'is', null)
-            .gt('unit_price', 0);
+        // Filter 'in' transactions with valid prices
+        const inTransactions = materialTxs.filter(
+          (tx: StockTransaction) =>
+            tx.transaction_type === 'in' &&
+            tx.unit_price &&
+            tx.unit_price > 0
+        );
 
-          // Calculate weighted average prices
-          const calculateAvgPrice = (transactions: any[]) => {
-            if (!transactions || transactions.length === 0) return undefined;
-            const totalValue = transactions.reduce((sum, tx) => sum + (tx.unit_price * tx.quantity), 0);
-            const totalQty = transactions.reduce((sum, tx) => sum + tx.quantity, 0);
-            return totalQty > 0 ? totalValue / totalQty : undefined;
-          };
+        // Calculate average prices for different periods
+        const tx30d = inTransactions.filter(
+          (tx: StockTransaction) => new Date(tx.created_at) >= date30d
+        );
+        const tx3m = inTransactions.filter(
+          (tx: StockTransaction) => new Date(tx.created_at) >= date3m
+        );
+        const tx1y = inTransactions.filter(
+          (tx: StockTransaction) => new Date(tx.created_at) >= date1y
+        );
 
-          return {
-            ...material,
-            last_transaction: lastTx ? {
-              type: lastTx.transaction_type as 'in' | 'production' | 'damage',
-              quantity: lastTx.quantity,
-              date: lastTx.created_at
-            } : undefined,
-            avg_price_30d: calculateAvgPrice(tx30d || []),
-            avg_price_3m: calculateAvgPrice(tx3m || []),
-            avg_price_1y: calculateAvgPrice(tx1y || [])
-          };
-        })
-      );
+        return {
+          ...material,
+          last_transaction: lastTx ? {
+            type: lastTx.transaction_type as 'in' | 'production' | 'damage',
+            quantity: lastTx.quantity,
+            date: lastTx.created_at
+          } : undefined,
+          avg_price_30d: calculateAvgPrice(tx30d),
+          avg_price_3m: calculateAvgPrice(tx3m),
+          avg_price_1y: calculateAvgPrice(tx1y)
+        };
+      });
 
       setMaterials(materialsWithDetails);
     } catch (error) {

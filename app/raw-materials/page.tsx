@@ -90,15 +90,25 @@ export default function RawMaterialsPage() {
 
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('raw_materials')
-        .select('*')
-        .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      // ใช้ API route แทน direct Supabase call เพื่อหลีก RLS
+      const { data: sessionData } = await supabase.auth.getSession();
 
-      if (data) {
-        setMaterials(data as RawMaterial[]);
+      const response = await fetch('/api/raw-materials', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to fetch materials');
+      }
+
+      if (result.materials) {
+        setMaterials(result.materials as RawMaterial[]);
         setDataFetched(true);
       }
     } catch (error) {

@@ -127,40 +127,57 @@ export default function CustomerDetailPage() {
   const fetchCustomerDetails = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('customers')
-        .select('*')
-        .eq('id', customerId)
-        .single();
+      const { data: { session } } = await supabase.auth.getSession();
 
-      if (error) throw error;
-
-      if (data) {
-        const customerData = {
-          ...data,
-          customer_type: data.customer_type_new || data.customer_type || 'retail'
-        };
-        setCustomer(customerData);
-
-        // Populate edit form
-        setCustomerForm({
-          name: customerData.name,
-          contact_person: customerData.contact_person || '',
-          phone: customerData.phone || '',
-          email: customerData.email || '',
-          address: customerData.address || '',
-          district: customerData.district || '',
-          amphoe: customerData.amphoe || '',
-          province: customerData.province || '',
-          postal_code: customerData.postal_code || '',
-          tax_id: customerData.tax_id || '',
-          customer_type: customerData.customer_type,
-          credit_limit: customerData.credit_limit,
-          credit_days: customerData.credit_days,
-          is_active: customerData.is_active,
-          notes: customerData.notes || ''
-        });
+      if (!session) {
+        throw new Error('No session');
       }
+
+      // Fetch customers via API
+      const response = await fetch('/api/customers', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to fetch customers');
+      }
+
+      // Find the specific customer
+      const data = (result.customers || []).find((c: Customer) => c.id === customerId);
+
+      if (!data) {
+        throw new Error('Customer not found');
+      }
+
+      const customerData = {
+        ...data,
+        customer_type: data.customer_type_new || data.customer_type || 'retail'
+      };
+      setCustomer(customerData);
+
+      // Populate edit form
+      setCustomerForm({
+        name: customerData.name,
+        contact_person: customerData.contact_person || '',
+        phone: customerData.phone || '',
+        email: customerData.email || '',
+        address: customerData.address || '',
+        district: customerData.district || '',
+        amphoe: customerData.amphoe || '',
+        province: customerData.province || '',
+        postal_code: customerData.postal_code || '',
+        tax_id: customerData.tax_id || '',
+        customer_type: customerData.customer_type,
+        credit_limit: customerData.credit_limit,
+        credit_days: customerData.credit_days,
+        is_active: customerData.is_active,
+        notes: customerData.notes || ''
+      });
     } catch (error) {
       console.error('Error fetching customer:', error);
       setError('ไม่สามารถโหลดข้อมูลลูกค้าได้');

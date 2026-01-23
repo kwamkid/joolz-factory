@@ -369,40 +369,59 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Fetch branch names for each order
-    const ordersWithBranches = await Promise.all(
-      (orders || []).map(async (order) => {
-        // Get unique shipping addresses for this order
-        const { data: shipments } = await supabaseAdmin
+    // Early return if no orders
+    if (!orders || orders.length === 0) {
+      return NextResponse.json({ orders: [] });
+    }
+
+    // Get all order IDs for batch fetching
+    const orderIds = orders.map(o => o.id);
+
+    // Batch fetch: Get all order items for all orders in one query
+    const { data: allOrderItems } = await supabaseAdmin
+      .from('order_items')
+      .select('id, order_id')
+      .in('order_id', orderIds);
+
+    // Get all order item IDs
+    const allOrderItemIds = (allOrderItems || []).map(item => item.id);
+
+    // Batch fetch: Get all shipments with shipping addresses in one query
+    const { data: allShipments } = allOrderItemIds.length > 0
+      ? await supabaseAdmin
           .from('order_shipments')
           .select(`
+            order_item_id,
             shipping_address:shipping_addresses (
               address_name
             )
           `)
-          .in('order_item_id',
-            (await supabaseAdmin
-              .from('order_items')
-              .select('id')
-              .eq('order_id', order.id)
-            ).data?.map(item => item.id) || []
-          );
+          .in('order_item_id', allOrderItemIds)
+      : { data: [] };
 
-        // Extract unique branch names
-        const branchNames = Array.from(
-          new Set(
-            (shipments || [])
-              .map((s: any) => s.shipping_address?.address_name)
-              .filter((name): name is string => name !== null && name !== undefined)
-          )
-        );
+    // Create a map: order_item_id -> order_id
+    const itemToOrderMap = new Map<string, string>();
+    (allOrderItems || []).forEach(item => {
+      itemToOrderMap.set(item.id, item.order_id);
+    });
 
-        return {
-          ...order,
-          branch_names: branchNames
-        };
-      })
-    );
+    // Create a map: order_id -> Set of branch names
+    const orderBranchesMap = new Map<string, Set<string>>();
+    (allShipments || []).forEach((shipment: any) => {
+      const orderId = itemToOrderMap.get(shipment.order_item_id);
+      if (orderId && shipment.shipping_address?.address_name) {
+        if (!orderBranchesMap.has(orderId)) {
+          orderBranchesMap.set(orderId, new Set());
+        }
+        orderBranchesMap.get(orderId)!.add(shipment.shipping_address.address_name);
+      }
+    });
+
+    // Map orders with their branch names
+    const ordersWithBranches = orders.map(order => ({
+      ...order,
+      branch_names: Array.from(orderBranchesMap.get(order.id) || [])
+    }));
 
     return NextResponse.json({ orders: ordersWithBranches });
   } catch (error) {
@@ -667,11 +686,20 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Cancel order (set status to cancelled)
+    // Cancel order (set order_status to cancelled, keep payment_status as is or set to pending if not paid)
+    // First get current payment status
+    const { data: currentOrder } = await supabaseAdmin
+      .from('orders')
+      .select('payment_status')
+      .eq('id', orderId)
+      .single();
+
     const { error } = await supabaseAdmin
       .from('orders')
       .update({
         order_status: 'cancelled',
+        // If not paid, set to pending (cancelled orders shouldn't show as "รอชำระ" in UI)
+        payment_status: currentOrder?.payment_status === 'paid' ? 'paid' : 'pending',
         updated_at: new Date().toISOString()
       })
       .eq('id', orderId);

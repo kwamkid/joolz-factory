@@ -47,6 +47,30 @@ interface MenuSection {
 
 // Menu sections configuration
 const menuSections: MenuSection[] = [
+  // Sales System - ใช้บ่อยสุด ย้ายมาบนสุด
+  {
+    title: 'ระบบการขาย',
+    items: [
+      {
+        label: 'คำสั่งซื้อ',
+        href: '/orders',
+        icon: <ShoppingCart className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      },
+      {
+        label: 'ลูกค้า',
+        href: '/customers',
+        icon: <UserCircle className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      },
+      {
+        label: 'สินค้าพร้อมขาย',
+        href: '/sellable-products',
+        icon: <Package2 className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      }
+    ]
+  },
   // Operation
   {
     title: 'Operation',
@@ -104,30 +128,6 @@ const menuSections: MenuSection[] = [
         href: '/stock',
         icon: <ArrowUpDown className="w-5 h-5" />,
         roles: ['admin', 'manager', 'operation']
-      }
-    ]
-  },
-  // Sales System
-  {
-    title: 'ระบบการขาย',
-    items: [
-      {
-        label: 'สินค้าพร้อมขาย',
-        href: '/sellable-products',
-        icon: <Package2 className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'sales']
-      },
-      {
-        label: 'ลูกค้า',
-        href: '/customers',
-        icon: <UserCircle className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'sales']
-      },
-      {
-        label: 'คำสั่งซื้อ',
-        href: '/orders',
-        icon: <ShoppingCart className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'sales']
       }
     ]
   },

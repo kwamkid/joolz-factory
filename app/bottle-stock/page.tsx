@@ -84,35 +84,56 @@ export default function BottleStockManagementPage() {
     try {
       setLoading(true);
 
-      // Fetch bottles
-      const { data: bottlesData, error: bottlesError } = await supabase
-        .from('bottle_types')
-        .select('id, size, price, stock, min_stock, image')
-        .order('size', { ascending: true });
+      // Get session for API calls
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authHeaders = {
+        'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+      };
 
-      if (bottlesError) throw bottlesError;
+      // Fetch bottles via API
+      const bottlesResponse = await fetch('/api/bottle-types', {
+        method: 'GET',
+        headers: authHeaders
+      });
 
-      // Fetch last transaction for each bottle
-      const bottlesWithLastTransaction = await Promise.all(
-        (bottlesData || []).map(async (bottle) => {
-          const { data: lastTx } = await supabase
-            .from('bottle_stock_transactions')
-            .select('transaction_type, quantity, created_at')
-            .eq('bottle_id', bottle.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
+      const bottlesResult = await bottlesResponse.json();
 
-          return {
-            ...bottle,
-            last_transaction: lastTx ? {
-              type: lastTx.transaction_type as 'in' | 'production' | 'damage',
-              quantity: lastTx.quantity,
-              date: lastTx.created_at
-            } : undefined
-          };
-        })
-      );
+      if (!bottlesResponse.ok) {
+        throw new Error(bottlesResult.error || 'Failed to fetch bottle types');
+      }
+
+      const bottlesData = bottlesResult.bottle_types || [];
+
+      // Sort by size
+      bottlesData.sort((a: BottleType, b: BottleType) => a.size.localeCompare(b.size));
+
+      // Fetch all transactions to get last transaction for each bottle
+      const transactionsResponse = await fetch('/api/bottle-stock-transactions', {
+        method: 'GET',
+        headers: authHeaders
+      });
+
+      const transactionsResult = await transactionsResponse.json();
+      const allTransactions = transactionsResult.transactions || [];
+
+      // Process each bottle with last transaction
+      const bottlesWithLastTransaction = bottlesData.map((bottle: BottleType) => {
+        // Filter transactions for this bottle (already sorted by created_at desc)
+        const bottleTxs = allTransactions.filter(
+          (tx: BottleStockTransaction) => tx.bottle_id === bottle.id
+        );
+
+        const lastTx = bottleTxs.length > 0 ? bottleTxs[0] : null;
+
+        return {
+          ...bottle,
+          last_transaction: lastTx ? {
+            type: lastTx.transaction_type as 'in' | 'production' | 'damage',
+            quantity: lastTx.quantity,
+            date: lastTx.created_at
+          } : undefined
+        };
+      });
 
       setBottles(bottlesWithLastTransaction);
     } catch (error) {

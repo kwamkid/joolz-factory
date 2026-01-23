@@ -115,19 +115,29 @@ export default function SuppliersPage() {
   // Fetch raw materials function
   const fetchRawMaterials = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('raw_materials')
-        .select('id, name, image')
-        .order('name', { ascending: true });
+      const { data: sessionData } = await supabase.auth.getSession();
 
-      if (error) {
-        console.warn('ไม่สามารถโหลดวัตถุดิบได้:', error.message);
+      const response = await fetch('/api/raw-materials', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.warn('ไม่สามารถโหลดวัตถุดิบได้:', result.error);
         setRawMaterials([]);
         return;
       }
 
-      if (data) {
-        setRawMaterials(data);
+      if (result.materials) {
+        // Sort by name
+        const sortedMaterials = result.materials.sort((a: { name: string }, b: { name: string }) =>
+          a.name.localeCompare(b.name)
+        );
+        setRawMaterials(sortedMaterials);
       } else {
         setRawMaterials([]);
       }
@@ -143,15 +153,23 @@ export default function SuppliersPage() {
 
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('suppliers')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const { data: sessionData } = await supabase.auth.getSession();
 
-      if (error) throw error;
+      const response = await fetch('/api/suppliers', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+        }
+      });
 
-      if (data) {
-        setSuppliers(data as Supplier[]);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to fetch suppliers');
+      }
+
+      if (result.suppliers) {
+        setSuppliers(result.suppliers as Supplier[]);
         setDataFetched(true);
       }
     } catch (error) {

@@ -1,4 +1,4 @@
-// Path: src/lib/supabase.ts
+// Path: lib/supabase.ts
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -6,8 +6,15 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-// Create Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Create Supabase client with proper auth configuration
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    storageKey: 'joolzjuice-auth',
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+});
 
 // Helper function to handle Supabase errors
 export const handleSupabaseError = (error: Error | null): string => {

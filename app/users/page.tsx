@@ -112,18 +112,28 @@ export default function UsersPage() {
   // Fetch users function
   const fetchUsers = useCallback(async () => {
     if (dataFetched) return;
-    
+
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      
-      if (data) {
-        const validatedUsers = data as User[];
+      // ใช้ API route แทน direct Supabase call เพื่อหลีก RLS
+      const { data: sessionData } = await supabase.auth.getSession();
+
+      const response = await fetch('/api/users', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to fetch users');
+      }
+
+      if (result.users) {
+        const validatedUsers = result.users as User[];
         setUsers(validatedUsers);
         setDataFetched(true);
       }

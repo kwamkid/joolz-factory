@@ -217,14 +217,22 @@ export default function NewProductionPage() {
       try {
         setLoading(true);
 
-        // Fetch base products
-        const { data: productsData } = await supabase
-          .from('products')
-          .select('id, code, name, image')
-          .eq('is_active', true)
-          .order('name');
+        // Fetch base products via API
+        const productsResponse = await fetch('/api/products', {
+          headers: { 'Authorization': `Bearer ${session?.access_token}` }
+        });
 
-        setProducts(productsData || []);
+        const productsResult = await productsResponse.json();
+
+        if (productsResponse.ok && productsResult.products) {
+          // Filter active products and sort by name
+          const activeProducts = productsResult.products
+            .filter((p: Product & { is_active?: boolean }) => p.is_active !== false)
+            .sort((a: Product, b: Product) => a.name.localeCompare(b.name));
+          setProducts(activeProducts);
+        } else {
+          setProducts([]);
+        }
 
         // Fetch sellable products
         const response = await fetch('/api/sellable-products', {

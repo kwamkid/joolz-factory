@@ -60,9 +60,9 @@ export async function GET(request: NextRequest) {
       .from('production_batches')
       .select(`
         id,
-        batch_number,
+        batch_id,
         status,
-        quantity,
+        total_bottles,
         created_at,
         products (
           name
@@ -135,10 +135,10 @@ export async function GET(request: NextRequest) {
         count: productionBatches?.length || 0,
         batches: (productionBatches || []).map((batch: any) => ({
           id: batch.id,
-          batchNumber: batch.batch_number,
+          batchNumber: batch.batch_id,
           productName: batch.products?.name || 'Unknown',
           status: batch.status,
-          quantity: batch.quantity,
+          quantity: batch.total_bottles,
           createdAt: batch.created_at
         }))
       },

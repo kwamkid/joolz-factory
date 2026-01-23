@@ -126,14 +126,27 @@ export default function NewOrderPage() {
 
   const fetchCustomers = async () => {
     try {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('id, customer_code, name, contact_person, phone')
-        .eq('is_active', true)
-        .order('name');
+      const { data: sessionData } = await supabase.auth.getSession();
 
-      if (error) throw error;
-      setCustomers(data || []);
+      const response = await fetch('/api/customers?active=true', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to fetch customers');
+      }
+
+      // Filter and sort customers
+      const sortedCustomers = (result.customers || [])
+        .filter((c: Customer & { is_active?: boolean }) => c.is_active !== false)
+        .sort((a: Customer, b: Customer) => a.name.localeCompare(b.name));
+
+      setCustomers(sortedCustomers);
     } catch (error) {
       console.error('Error fetching customers:', error);
     }

@@ -143,34 +143,43 @@ export default function ProductsPage() {
 
     try {
       setLoading(true);
-      // Fetch products with recipes
-      const { data, error } = await supabase
-        .from('products')
-        .select(`
-          *,
-          recipes:product_recipes (
-            raw_material_id,
-            quantity_per_unit,
-            raw_materials (id, name, unit)
-          )
-        `)
-        .order('created_at', { ascending: false });
+      const { data: sessionData } = await supabase.auth.getSession();
 
-      if (error) throw error;
+      const authHeaders = {
+        'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+      };
 
-      if (data) {
-        setProducts(data as Product[]);
+      // Fetch products via API
+      const productsResponse = await fetch('/api/products', {
+        method: 'GET',
+        headers: authHeaders
+      });
+
+      const productsResult = await productsResponse.json();
+
+      if (!productsResponse.ok) {
+        throw new Error(productsResult.error || 'Failed to fetch products');
+      }
+
+      if (productsResult.products) {
+        setProducts(productsResult.products as Product[]);
         setDataFetched(true);
       }
 
-      // Also fetch raw materials
-      const { data: materialsData } = await supabase
-        .from('raw_materials')
-        .select('id, name, unit')
-        .order('name');
+      // Also fetch raw materials via API
+      const materialsResponse = await fetch('/api/raw-materials', {
+        method: 'GET',
+        headers: authHeaders
+      });
 
-      if (materialsData) {
-        setRawMaterials(materialsData);
+      const materialsResult = await materialsResponse.json();
+
+      if (materialsResponse.ok && materialsResult.materials) {
+        // Sort by name
+        const sortedMaterials = materialsResult.materials.sort((a: RawMaterial, b: RawMaterial) =>
+          a.name.localeCompare(b.name)
+        );
+        setRawMaterials(sortedMaterials);
       }
     } catch (error) {
       console.error('Error fetching products:', error);
@@ -398,11 +407,11 @@ export default function ProductsPage() {
   const handleEditProduct = async (product: Product) => {
     setEditingProduct(product);
 
-    // Fetch existing recipes for this product
-    const { data: recipes } = await supabase
-      .from('product_recipes')
-      .select('raw_material_id, quantity_per_unit')
-      .eq('product_id', product.id);
+    // Use existing recipes from the product (already fetched from API)
+    const existingRecipes = product.recipes?.map(recipe => ({
+      raw_material_id: recipe.raw_material_id,
+      quantity_per_unit: recipe.quantity_per_unit
+    })) || [];
 
     setFormData({
       code: product.code,
@@ -412,7 +421,7 @@ export default function ProductsPage() {
       image: product.image || '',
       is_active: product.is_active,
       product_type: product.product_type || 'manufactured',
-      ingredients: recipes || []
+      ingredients: existingRecipes
     });
     setShowModal(true);
   };

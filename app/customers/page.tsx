@@ -152,13 +152,23 @@ export default function CustomersPage() {
         throw new Error('No session');
       }
 
-      // Fetch customers
-      const { data, error } = await supabase
-        .from('customers')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const authHeaders = {
+        'Authorization': `Bearer ${session.access_token}`
+      };
 
-      if (error) throw error;
+      // Fetch customers via API
+      const customersResponse = await fetch('/api/customers', {
+        method: 'GET',
+        headers: authHeaders
+      });
+
+      const customersResult = await customersResponse.json();
+
+      if (!customersResponse.ok) {
+        throw new Error(customersResult.error || 'Failed to fetch customers');
+      }
+
+      const data = customersResult.customers || [];
 
       if (data) {
         // Fetch shipping address counts for all customers
@@ -166,9 +176,7 @@ export default function CustomersPage() {
           data.map(async (customer: any) => {
             try {
               const response = await fetch(`/api/shipping-addresses?customer_id=${customer.id}`, {
-                headers: {
-                  'Authorization': `Bearer ${session.access_token}`
-                }
+                headers: authHeaders
               });
 
               if (response.ok) {

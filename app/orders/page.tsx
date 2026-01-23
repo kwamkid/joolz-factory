@@ -883,7 +883,10 @@ export default function OrdersPage() {
 
                       {/* สถานะการชำระ */}
                       <td className="px-6 py-4">
-                        {getNextPaymentStatus(order.payment_status) ? (
+                        {/* ถ้า order ถูกยกเลิก ไม่ต้องแสดงสถานะการชำระ */}
+                        {order.order_status === 'cancelled' ? (
+                          <span className="text-gray-400">-</span>
+                        ) : getNextPaymentStatus(order.payment_status) ? (
                           <button
                             onClick={(e) => handlePaymentStatusClick(e, order)}
                             title={`คลิกเพื่อเปลี่ยนเป็น "${getPaymentStatusLabel(getNextPaymentStatus(order.payment_status) || '')}"`}
