@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
+import DateRangePicker from '@/components/ui/DateRangePicker';
+import { DateValueType } from 'react-tailwindcss-datepicker';
 import {
   ArrowLeft,
   Plus,
@@ -41,7 +43,7 @@ interface ShippingAddress {
 }
 
 interface Product {
-  id: string; // variation_id for variations, sellable_product_id for simple products
+  id: string;
   sellable_product_id: string;
   code: string;
   name: string;
@@ -54,7 +56,6 @@ interface Product {
   stock: number;
 }
 
-// Branch-First structure
 interface BranchProduct {
   variation_id: string;
   sellable_product_id: string;
@@ -96,15 +97,19 @@ export default function NewOrderPage() {
   // Products
   const [products, setProducts] = useState<Product[]>([]);
 
-  // Customer pricing (last prices paid by customer for each product)
+  // Customer pricing
   const [customerPrices, setCustomerPrices] = useState<Record<string, { unit_price: number; discount_percent: number }>>({});
 
-  // Branch Orders (Branch-First approach)
+  // Branch Orders
   const [branchOrders, setBranchOrders] = useState<BranchOrder[]>([]);
   const [activeBranchIndex, setActiveBranchIndex] = useState(0);
 
   // Order details
-  const [deliveryDate, setDeliveryDate] = useState('');
+  const [deliveryDateValue, setDeliveryDateValue] = useState<DateValueType>({
+    startDate: null,
+    endDate: null,
+  });
+  const deliveryDate = deliveryDateValue?.startDate ? String(deliveryDateValue.startDate) : '';
   const [notes, setNotes] = useState('');
   const [internalNotes, setInternalNotes] = useState('');
   const [orderDiscount, setOrderDiscount] = useState(0);
@@ -113,7 +118,7 @@ export default function NewOrderPage() {
   const [productSearches, setProductSearches] = useState<string[]>([]);
   const [showProductDropdowns, setShowProductDropdowns] = useState<boolean[]>([]);
 
-  // Refs for quantity inputs (to focus after adding product)
+  // Refs
   const quantityInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
 
   // Fetch customers
@@ -127,25 +132,18 @@ export default function NewOrderPage() {
   const fetchCustomers = async () => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-
       const response = await fetch('/api/customers?active=true', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
         }
       });
-
       const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to fetch customers');
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to fetch customers');
-      }
-
-      // Filter and sort customers
       const sortedCustomers = (result.customers || [])
         .filter((c: Customer & { is_active?: boolean }) => c.is_active !== false)
         .sort((a: Customer, b: Customer) => a.name.localeCompare(b.name));
-
       setCustomers(sortedCustomers);
     } catch (error) {
       console.error('Error fetching customers:', error);
@@ -157,17 +155,12 @@ export default function NewOrderPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      // Fetch sellable products and bottle types in parallel using API routes
       const [productsResponse, bottleTypesResponse] = await Promise.all([
         fetch('/api/sellable-products', {
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`
-          }
+          headers: { 'Authorization': `Bearer ${session.access_token}` }
         }),
         fetch('/api/bottle-types', {
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`
-          }
+          headers: { 'Authorization': `Bearer ${session.access_token}` }
         })
       ]);
 
@@ -176,7 +169,6 @@ export default function NewOrderPage() {
       const result = await productsResponse.json();
       const sellableProducts = result.sellable_products || [];
 
-      // Create bottle type lookup map from API response
       const bottleTypeMap = new Map<string, { size: string; capacity_ml: number }>();
       if (bottleTypesResponse.ok) {
         const bottleTypesResult = await bottleTypesResponse.json();
@@ -185,17 +177,14 @@ export default function NewOrderPage() {
         });
       }
 
-      // Flatten variations into individual products
       const flatProducts: Product[] = [];
-
       sellableProducts.forEach((sp: any) => {
         if (sp.product_type === 'simple') {
-          // Simple products also have one variation row - get variation_id from variations[0]
           const variation_id = sp.variations && sp.variations.length > 0 ? sp.variations[0].variation_id : null;
           const bottleTypeId = sp.simple_bottle_type_id || (sp.variations && sp.variations[0]?.bottle_type_id);
           const bottleInfo = bottleTypeId ? bottleTypeMap.get(bottleTypeId) : null;
           flatProducts.push({
-            id: variation_id || sp.sellable_product_id, // Use variation_id for foreign key
+            id: variation_id || sp.sellable_product_id,
             sellable_product_id: sp.sellable_product_id,
             code: sp.code,
             name: sp.name,
@@ -226,7 +215,6 @@ export default function NewOrderPage() {
           });
         }
       });
-
       setProducts(flatProducts);
     } catch (error) {
       console.error('Error fetching products:', error);
@@ -239,9 +227,7 @@ export default function NewOrderPage() {
       if (!session) return;
 
       const response = await fetch(`/api/shipping-addresses?customer_id=${customerId}`, {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        }
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
       });
 
       if (response.ok) {
@@ -249,19 +235,16 @@ export default function NewOrderPage() {
         const addresses = result.addresses || [];
         setShippingAddresses(addresses);
 
-        // Auto-initialize first branch if addresses exist
         if (addresses.length > 0 && forceInit) {
-          const sortedAddresses = [...addresses].sort((a, b) =>
+          const sortedAddresses = [...addresses].sort((a: ShippingAddress, b: ShippingAddress) =>
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
           );
-
           const firstBranch: BranchOrder = {
             shipping_address_id: sortedAddresses[0].id,
             address_name: sortedAddresses[0].address_name,
             delivery_notes: '',
             products: []
           };
-
           setBranchOrders([firstBranch]);
           setProductSearches(['']);
           setShowProductDropdowns([false]);
@@ -272,13 +255,10 @@ export default function NewOrderPage() {
     }
   };
 
-  // Handle customer selection
   const handleSelectCustomer = async (customer: Customer) => {
     setSelectedCustomer(customer);
     setCustomerSearch(customer.name);
     setShowCustomerDropdown(false);
-
-    // Reset branch orders when selecting a new customer
     setBranchOrders([]);
     setProductSearches([]);
     setShowProductDropdowns([]);
@@ -286,15 +266,11 @@ export default function NewOrderPage() {
 
     fetchShippingAddresses(customer.id);
 
-    // Fetch customer's last prices
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const response = await fetch(`/api/customer-prices?customer_id=${customer.id}`, {
-        headers: {
-          'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
-        }
+        headers: { 'Authorization': `Bearer ${sessionData?.session?.access_token || ''}` }
       });
-
       if (response.ok) {
         const result = await response.json();
         setCustomerPrices(result.prices || {});
@@ -305,13 +281,11 @@ export default function NewOrderPage() {
   };
 
   // Branch management
-  const handleAddBranch = () => {
-    if (shippingAddresses.length === 0) {
-      setError('ลูกค้านี้ยังไม่มีที่อยู่จัดส่ง');
-      return;
-    }
+  const canAddBranch = shippingAddresses.length > 1 && branchOrders.length < shippingAddresses.length;
 
-    // Find first available address not used yet
+  const handleAddBranch = () => {
+    if (!canAddBranch) return;
+
     const usedAddressIds = branchOrders.map(b => b.shipping_address_id);
     const availableAddress = shippingAddresses.find(a => !usedAddressIds.includes(a.id)) || shippingAddresses[0];
 
@@ -334,11 +308,9 @@ export default function NewOrderPage() {
       setTimeout(() => setError(''), 3000);
       return;
     }
-
     setBranchOrders(branchOrders.filter((_, i) => i !== index));
     setProductSearches(productSearches.filter((_, i) => i !== index));
     setShowProductDropdowns(showProductDropdowns.filter((_, i) => i !== index));
-
     if (activeBranchIndex >= branchOrders.length - 1) {
       setActiveBranchIndex(Math.max(0, branchOrders.length - 2));
     }
@@ -360,22 +332,19 @@ export default function NewOrderPage() {
     setBranchOrders(newBranchOrders);
   };
 
-  // Product management per branch
+  // Product management
   const handleAddProductToBranch = (branchIndex: number, product: Product) => {
     const existingProduct = branchOrders[branchIndex].products.find(
       p => p.variation_id === product.id
     );
-
     if (existingProduct) {
       setError('สินค้านี้มีอยู่ในสาขานี้แล้ว');
       setTimeout(() => setError(''), 3000);
       return;
     }
 
-    // Determine price
     let unit_price = 0;
     let discount_percent = 0;
-
     const customerLastPrice = customerPrices[product.id];
     if (customerLastPrice) {
       unit_price = customerLastPrice.unit_price;
@@ -402,23 +371,20 @@ export default function NewOrderPage() {
     newBranchOrders[branchIndex].products.push(newProduct);
     setBranchOrders(newBranchOrders);
 
-    // Clear search
     const newSearches = [...productSearches];
     newSearches[branchIndex] = '';
     setProductSearches(newSearches);
-
     const newDropdowns = [...showProductDropdowns];
     newDropdowns[branchIndex] = false;
     setShowProductDropdowns(newDropdowns);
 
-    // Focus on quantity input after adding product
     setTimeout(() => {
       const productIndex = newBranchOrders[branchIndex].products.length - 1;
       const inputKey = `${branchIndex}-${productIndex}`;
       const inputElement = quantityInputRefs.current[inputKey];
       if (inputElement) {
         inputElement.focus();
-        inputElement.select(); // Highlight all text
+        inputElement.select();
       }
     }, 100);
   };
@@ -450,44 +416,23 @@ export default function NewOrderPage() {
   };
 
   // Calculate totals
-  const calculateProductSubtotal = (product: BranchProduct) => {
-    return product.quantity * product.unit_price;
-  };
+  const calculateProductSubtotal = (product: BranchProduct) => product.quantity * product.unit_price;
+  const calculateProductDiscount = (product: BranchProduct) => calculateProductSubtotal(product) * (product.discount_percent / 100);
+  const calculateProductTotal = (product: BranchProduct) => calculateProductSubtotal(product) - calculateProductDiscount(product);
+  const calculateBranchTotal = (branch: BranchOrder) => branch.products.reduce((sum, p) => sum + calculateProductTotal(p), 0);
 
-  const calculateProductDiscount = (product: BranchProduct) => {
-    return calculateProductSubtotal(product) * (product.discount_percent / 100);
-  };
-
-  const calculateProductTotal = (product: BranchProduct) => {
-    return calculateProductSubtotal(product) - calculateProductDiscount(product);
-  };
-
-  const calculateBranchTotal = (branch: BranchOrder) => {
-    return branch.products.reduce((sum, p) => sum + calculateProductTotal(p), 0);
-  };
-
-  // Prices already include VAT, so we need to calculate backwards
   const itemsTotal = branchOrders.reduce((sum, branch) => sum + calculateBranchTotal(branch), 0);
-  const totalWithVAT = itemsTotal - orderDiscount; // This is the final total (already includes VAT)
-  const subtotal = Math.round((totalWithVAT / 1.07) * 100) / 100; // Calculate subtotal (before VAT)
-  const vat = totalWithVAT - subtotal; // VAT amount
-  const total = totalWithVAT; // Final total (same as totalWithVAT)
+  const totalWithVAT = itemsTotal - orderDiscount;
+  const subtotal = Math.round((totalWithVAT / 1.07) * 100) / 100;
+  const vat = totalWithVAT - subtotal;
+  const total = totalWithVAT;
 
-  // Validate and submit
+  // Submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedCustomer) {
-      setError('กรุณาเลือกลูกค้า');
-      return;
-    }
-
-    if (branchOrders.length === 0) {
-      setError('กรุณาเพิ่มอย่างน้อย 1 สาขา');
-      return;
-    }
-
-    // Check if all branches have products
+    if (!selectedCustomer) { setError('กรุณาเลือกลูกค้า'); return; }
+    if (branchOrders.length === 0) { setError('กรุณาเพิ่มอย่างน้อย 1 สาขา'); return; }
     for (let i = 0; i < branchOrders.length; i++) {
       if (branchOrders[i].products.length === 0) {
         setError(`กรุณาเพิ่มสินค้าสำหรับสาขา: ${branchOrders[i].address_name}`);
@@ -500,12 +445,8 @@ export default function NewOrderPage() {
       setError('');
 
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('No session');
-      }
+      if (!session) throw new Error('No session');
 
-      // Convert branch-first structure to flat order items
-      // Each product in each branch becomes a separate order_item with exactly one shipment
       const items = branchOrders.flatMap(branch =>
         branch.products.map(product => ({
           variation_id: product.variation_id,
@@ -543,15 +484,10 @@ export default function NewOrderPage() {
       });
 
       const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'เกิดข้อผิดพลาด');
-      }
+      if (!response.ok) throw new Error(result.error || 'เกิดข้อผิดพลาด');
 
       setSuccess('สร้างคำสั่งซื้อสำเร็จ');
-      setTimeout(() => {
-        router.push('/orders');
-      }, 1500);
+      setTimeout(() => { router.push('/orders'); }, 1500);
     } catch (error) {
       console.error('Error creating order:', error);
       setError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด');
@@ -575,9 +511,14 @@ export default function NewOrderPage() {
     c.customer_code.toLowerCase().includes(customerSearch.toLowerCase())
   );
 
+  const getCapacityDisplay = (capacityMl?: number) => {
+    if (!capacityMl) return '';
+    return capacityMl >= 1000 ? `${capacityMl / 1000}L` : `${capacityMl}ml`;
+  };
+
   return (
     <Layout>
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-4">
         {/* Header */}
         <div className="flex items-center gap-3">
           <button
@@ -585,33 +526,33 @@ export default function NewOrderPage() {
             onClick={() => router.back()}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <ArrowLeft className="w-6 h-6 text-gray-600" />
+            <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
-          <h1 className="text-3xl font-bold text-gray-900">สร้างคำสั่งซื้อใหม่</h1>
+          <h1 className="text-2xl font-bold text-gray-900">สร้างคำสั่งซื้อใหม่</h1>
         </div>
 
         {/* Messages */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
             {error}
           </div>
         )}
         {success && (
-          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
             {success}
           </div>
         )}
 
-        {/* Customer Selection */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold mb-4">ข้อมูลลูกค้า</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="relative">
+        {/* Step 1: Customer + Delivery Date */}
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Customer Search */}
+            <div className="relative md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                เลือกลูกค้า <span className="text-red-500">*</span>
+                ลูกค้า <span className="text-red-500">*</span>
               </label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
                   value={customerSearch}
@@ -621,7 +562,7 @@ export default function NewOrderPage() {
                   }}
                   onFocus={() => setShowCustomerDropdown(true)}
                   placeholder="ค้นหาชื่อลูกค้าหรือรหัส..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                  className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm"
                   required
                 />
               </div>
@@ -637,8 +578,8 @@ export default function NewOrderPage() {
                         onClick={() => handleSelectCustomer(customer)}
                         className="w-full px-4 py-2 text-left hover:bg-gray-50 transition-colors"
                       >
-                        <div className="font-medium">{customer.name}</div>
-                        <div className="text-sm text-gray-500">{customer.customer_code}</div>
+                        <div className="text-sm font-medium">{customer.name}</div>
+                        <div className="text-xs text-gray-500">{customer.customer_code}</div>
                       </button>
                     ))
                   )}
@@ -646,107 +587,119 @@ export default function NewOrderPage() {
               )}
             </div>
 
-            {selectedCustomer && (
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <div className="text-sm text-gray-600 mb-1">ผู้ติดต่อ</div>
-                <div className="font-medium">{selectedCustomer.contact_person || '-'}</div>
-                <div className="text-sm text-gray-600">{selectedCustomer.phone || '-'}</div>
-              </div>
-            )}
+            {/* Delivery Date */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                วันที่ส่งของ <span className="text-red-500">*</span>
+              </label>
+              <DateRangePicker
+                value={deliveryDateValue}
+                onChange={(val) => setDeliveryDateValue(val)}
+                asSingle={true}
+                useRange={false}
+                showShortcuts={false}
+                showFooter={false}
+                placeholder="เลือกวันที่ส่ง"
+              />
+            </div>
           </div>
 
-          {selectedCustomer && shippingAddresses.length > 0 && (
-            <div className="mt-4">
-              <div className="text-sm text-gray-600 mb-2">ที่อยู่จัดส่ง ({shippingAddresses.length} แห่ง)</div>
-              <div className="flex flex-wrap gap-2">
-                {shippingAddresses.map(addr => (
-                  <div key={addr.id} className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
-                    <MapPin className="w-3 h-3" />
-                    {addr.address_name}
-                  </div>
-                ))}
-              </div>
+          {/* Selected customer info */}
+          {selectedCustomer && (
+            <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-3 text-sm">
+              <span className="text-gray-500">ผู้ติดต่อ: <span className="text-gray-900 font-medium">{selectedCustomer.contact_person || '-'}</span></span>
+              <span className="text-gray-300">|</span>
+              <span className="text-gray-500">โทร: <span className="text-gray-900">{selectedCustomer.phone || '-'}</span></span>
+              {shippingAddresses.length > 0 && (
+                <>
+                  <span className="text-gray-300">|</span>
+                  <span className="text-gray-500">
+                    <MapPin className="w-3.5 h-3.5 inline mr-0.5" />
+                    {shippingAddresses.length} สาขา
+                  </span>
+                </>
+              )}
             </div>
           )}
         </div>
 
         {/* No Shipping Addresses Warning */}
         {selectedCustomer && shippingAddresses.length === 0 && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-            <div className="flex items-start gap-3">
-              <MapPin className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="font-semibold text-yellow-800">ลูกค้านี้ยังไม่มีที่อยู่จัดส่ง</h3>
-                <p className="text-yellow-700 text-sm mt-1">กรุณาเพิ่มที่อยู่จัดส่งก่อนสร้างคำสั่งซื้อ</p>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/customers/${selectedCustomer.id}?tab=addresses`)}
-                  className="mt-3 bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
-                >
-                  ไปเพิ่มที่อยู่จัดส่ง
-                </button>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <MapPin className="w-5 h-5 text-yellow-600 flex-shrink-0" />
+              <div className="flex-1">
+                <span className="font-medium text-yellow-800">ลูกค้านี้ยังไม่มีที่อยู่จัดส่ง</span>
+                <span className="text-yellow-700 text-sm ml-2">กรุณาเพิ่มที่อยู่จัดส่งก่อน</span>
               </div>
+              <button
+                type="button"
+                onClick={() => router.push(`/customers/${selectedCustomer.id}?tab=addresses`)}
+                className="bg-yellow-600 text-white px-3 py-1.5 rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium whitespace-nowrap"
+              >
+                เพิ่มที่อยู่
+              </button>
             </div>
           </div>
         )}
 
-        {/* Branch Orders */}
+        {/* Step 2: Branch Orders - Product List */}
         {selectedCustomer && branchOrders.length > 0 && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 overflow-visible">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">รายการสินค้าแยกตามสาขา</h2>
-              <button
-                type="button"
-                onClick={handleAddBranch}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm font-medium"
-              >
-                <Plus className="w-4 h-4" />
-                เพิ่มสาขา
-              </button>
-            </div>
-
-            {/* Branch Tabs (only show if more than one branch) */}
-            {branchOrders.length > 1 && (
-              <div className="flex gap-2 mb-4 border-b overflow-x-auto">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-visible">
+            {/* Branch Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              {/* Branch Tabs */}
+              <div className="flex items-center gap-1 overflow-x-auto">
                 {branchOrders.map((branch, index) => (
                   <button
                     key={index}
                     type="button"
                     onClick={() => setActiveBranchIndex(index)}
-                    className={`px-4 py-2 font-medium whitespace-nowrap border-b-2 transition-colors ${
+                    className={`px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition-colors flex items-center gap-1.5 ${
                       activeBranchIndex === index
-                        ? 'border-[#E9B308] text-[#E9B308]'
-                        : 'border-transparent text-gray-600 hover:text-gray-900'
+                        ? 'bg-[#E9B308] text-[#00231F]'
+                        : 'text-gray-600 hover:bg-gray-100'
                     }`}
                   >
+                    <MapPin className="w-3.5 h-3.5" />
                     {branch.address_name}
                     {branch.products.length > 0 && (
-                      <span className="ml-2 text-xs bg-gray-200 px-2 py-0.5 rounded-full">
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                        activeBranchIndex === index ? 'bg-[#00231F]/20' : 'bg-gray-200'
+                      }`}>
                         {branch.products.length}
                       </span>
                     )}
                   </button>
                 ))}
               </div>
-            )}
 
-            {/* Active Branch */}
+              <button
+                type="button"
+                onClick={handleAddBranch}
+                disabled={!canAddBranch}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ml-2 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-blue-50"
+                title={!canAddBranch ? (shippingAddresses.length <= 1 ? 'ลูกค้ามีสาขาเดียว' : 'เพิ่มครบทุกสาขาแล้ว') : 'เพิ่มสาขา'}
+              >
+                <Plus className="w-4 h-4" />
+                เพิ่มสาขา
+              </button>
+            </div>
+
+            {/* Active Branch Content */}
             {branchOrders.map((branch, branchIndex) => (
               <div
                 key={branchIndex}
                 className={branchIndex === activeBranchIndex ? 'block' : 'hidden'}
               >
-                {/* Branch Details */}
-                <div className="bg-gray-50 p-4 rounded-lg mb-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        สาขา <span className="text-red-500">*</span>
-                      </label>
+                {/* Branch address selector + notes */}
+                <div className="px-4 py-3 bg-gray-50/50 border-b border-gray-100">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <div className="flex-1">
                       <select
                         value={branch.shipping_address_id}
                         onChange={(e) => handleUpdateBranchAddress(branchIndex, e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm bg-white"
                       >
                         {shippingAddresses.map(addr => (
                           <option key={addr.id} value={addr.id}>
@@ -755,121 +708,106 @@ export default function NewOrderPage() {
                         ))}
                       </select>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        หมายเหตุการจัดส่ง
-                      </label>
-                      <input
-                        type="text"
-                        value={branch.delivery_notes}
-                        onChange={(e) => handleUpdateBranchNotes(branchIndex, e.target.value)}
-                        placeholder="หมายเหตุสำหรับสาขานี้..."
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                      />
-                    </div>
-                  </div>
-                  {branchOrders.length > 1 && (
-                    <div className="mt-3 flex justify-end">
+                    <input
+                      type="text"
+                      value={branch.delivery_notes}
+                      onChange={(e) => handleUpdateBranchNotes(branchIndex, e.target.value)}
+                      placeholder="หมายเหตุการจัดส่ง..."
+                      className="sm:w-48 px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm"
+                    />
+                    {branchOrders.length > 1 && (
                       <button
                         type="button"
                         onClick={() => handleRemoveBranch(branchIndex)}
-                        className="text-red-600 hover:text-red-700 text-sm flex items-center gap-1"
+                        className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                        title="ลบสาขานี้"
                       >
                         <Trash2 className="w-4 h-4" />
-                        ลบสาขานี้
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
                 {/* Products Table */}
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead className="bg-gray-50 border-b">
+                    <thead className="bg-gray-50 border-b text-xs">
                       <tr>
-                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">สินค้า</th>
-                        <th className="px-4 py-2 text-center text-sm font-medium text-gray-700 w-24">จำนวน</th>
-                        <th className="px-4 py-2 text-right text-sm font-medium text-gray-700 w-32">ราคา/หน่วย</th>
-                        <th className="px-4 py-2 text-center text-sm font-medium text-gray-700 w-24">ส่วนลด%</th>
-                        <th className="px-4 py-2 text-right text-sm font-medium text-gray-700 w-32">รวม</th>
-                        <th className="px-4 py-2 text-center text-sm font-medium text-gray-700 w-16">ลบ</th>
+                        <th className="px-4 py-2 text-left font-medium text-gray-500 uppercase">สินค้า</th>
+                        <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase w-20">จำนวน</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-500 uppercase w-28">ราคา</th>
+                        <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase w-20">ลด%</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-500 uppercase w-28">รวม</th>
+                        <th className="px-2 py-2 w-10"></th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y">
+                    <tbody className="divide-y divide-gray-100">
                       {branch.products.map((product, productIndex) => {
-                        // Format capacity for display
-                        const capacityDisplay = product.bottle_capacity_ml
-                          ? product.bottle_capacity_ml >= 1000
-                            ? `${product.bottle_capacity_ml / 1000}L`
-                            : `${product.bottle_capacity_ml}ml`
-                          : '';
+                        const capacityDisplay = getCapacityDisplay(product.bottle_capacity_ml);
                         return (
-                        <tr key={product.variation_id}>
-                          <td className="px-4 py-3">
-                            <div className="font-medium">
-                              {product.product_name}
-                              {capacityDisplay && <span className="text-gray-500 font-normal ml-1">ขวด {capacityDisplay}</span>}
-                            </div>
-                            <div className="text-xs text-gray-400">{product.product_code}</div>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <input
-                              ref={(el) => {
-                                const key = `${branchIndex}-${productIndex}`;
-                                quantityInputRefs.current[key] = el;
-                              }}
-                              type="number"
-                              min="1"
-                              value={product.quantity}
-                              onChange={(e) => handleUpdateProductQuantity(branchIndex, productIndex, parseInt(e.target.value) || 1)}
-                              className="w-20 px-2 py-1 border border-gray-300 rounded text-center focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                            />
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={product.unit_price}
-                              onChange={(e) => handleUpdateProductPrice(branchIndex, productIndex, parseFloat(e.target.value) || 0)}
-                              className="w-full px-2 py-1 border border-gray-300 rounded text-right focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                            />
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="0.01"
-                              value={product.discount_percent}
-                              onChange={(e) => handleUpdateProductDiscount(branchIndex, productIndex, parseFloat(e.target.value) || 0)}
-                              className="w-20 px-2 py-1 border border-gray-300 rounded text-center focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                            />
-                          </td>
-                          <td className="px-4 py-3 text-right font-medium">
-                            ฿{calculateProductTotal(product).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveProductFromBranch(branchIndex, productIndex)}
-                              className="text-red-600 hover:text-red-700 p-1"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
+                          <tr key={product.variation_id} className="hover:bg-gray-50/50">
+                            <td className="px-4 py-2.5">
+                              <div className="text-sm font-medium text-gray-900">
+                                {product.product_name}
+                                {capacityDisplay && <span className="text-gray-400 font-normal ml-1">({capacityDisplay})</span>}
+                              </div>
+                              <div className="text-xs text-gray-400">{product.product_code}</div>
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <input
+                                ref={(el) => { quantityInputRefs.current[`${branchIndex}-${productIndex}`] = el; }}
+                                type="number"
+                                min="1"
+                                value={product.quantity}
+                                onChange={(e) => handleUpdateProductQuantity(branchIndex, productIndex, parseInt(e.target.value) || 1)}
+                                className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                              />
+                            </td>
+                            <td className="px-3 py-2.5 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={product.unit_price}
+                                onChange={(e) => handleUpdateProductPrice(branchIndex, productIndex, parseFloat(e.target.value) || 0)}
+                                className="w-24 px-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                              />
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                value={product.discount_percent}
+                                onChange={(e) => handleUpdateProductDiscount(branchIndex, productIndex, parseFloat(e.target.value) || 0)}
+                                className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                              />
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-sm font-medium text-gray-900">
+                              {calculateProductTotal(product).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-2 py-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveProductFromBranch(branchIndex, productIndex)}
+                                className="text-gray-400 hover:text-red-600 p-1 rounded transition-colors"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
                         );
                       })}
                     </tbody>
                   </table>
                 </div>
 
-                {/* Add Product Search - Below table, aligned with product column */}
-                <div className="mt-4">
-                  <div className="relative w-full max-w-lg">
-                    <div className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#E9B308] transition-colors bg-white">
-                      <Plus className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                {/* Add Product Search */}
+                <div className="px-4 py-3 border-t border-gray-100">
+                  <div className="relative">
+                    <div className="flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 rounded-lg hover:border-[#E9B308] transition-colors bg-white">
+                      <Plus className="w-4 h-4 text-gray-400 flex-shrink-0" />
                       <input
                         type="text"
                         value={productSearches[branchIndex] || ''}
@@ -877,7 +815,6 @@ export default function NewOrderPage() {
                           const newSearches = [...productSearches];
                           newSearches[branchIndex] = e.target.value;
                           setProductSearches(newSearches);
-
                           const newDropdowns = [...showProductDropdowns];
                           newDropdowns[branchIndex] = true;
                           setShowProductDropdowns(newDropdowns);
@@ -888,14 +825,13 @@ export default function NewOrderPage() {
                           setShowProductDropdowns(newDropdowns);
                         }}
                         onBlur={() => {
-                          // Delay to allow click on dropdown items
                           setTimeout(() => {
                             const newDropdowns = [...showProductDropdowns];
                             newDropdowns[branchIndex] = false;
                             setShowProductDropdowns(newDropdowns);
                           }, 200);
                         }}
-                        placeholder="ค้นหาชื่อหรือรหัสสินค้า..."
+                        placeholder="เพิ่มสินค้า — พิมพ์ชื่อหรือรหัส..."
                         className="flex-1 outline-none bg-transparent text-sm"
                       />
                     </div>
@@ -913,12 +849,7 @@ export default function NewOrderPage() {
                               p.code.toLowerCase().includes(productSearches[branchIndex].toLowerCase())
                             )
                             .map(product => {
-                              // Format capacity: 1000ml -> 1L, otherwise show as ml
-                              const capacityDisplay = product.bottle_capacity_ml
-                                ? product.bottle_capacity_ml >= 1000
-                                  ? `${product.bottle_capacity_ml / 1000}L`
-                                  : `${product.bottle_capacity_ml}ml`
-                                : '';
+                              const capacityDisplay = getCapacityDisplay(product.bottle_capacity_ml);
                               return (
                                 <button
                                   key={product.id}
@@ -927,21 +858,17 @@ export default function NewOrderPage() {
                                   className="w-full px-3 py-2 text-left hover:bg-gray-50 transition-colors flex items-center gap-3"
                                 >
                                   {product.image ? (
-                                    <img
-                                      src={product.image}
-                                      alt={product.name}
-                                      className="w-10 h-10 object-cover rounded-lg flex-shrink-0"
-                                    />
+                                    <img src={product.image} alt={product.name} className="w-8 h-8 object-cover rounded flex-shrink-0" />
                                   ) : (
-                                    <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                      <Package className="w-5 h-5 text-gray-400" />
+                                    <div className="w-8 h-8 bg-gray-100 rounded flex items-center justify-center flex-shrink-0">
+                                      <Package className="w-4 h-4 text-gray-400" />
                                     </div>
                                   )}
                                   <div className="flex-1 min-w-0">
                                     <div className="text-sm font-medium truncate">
-                                      {product.name} {capacityDisplay && <span className="text-gray-500 font-normal">ขวด {capacityDisplay}</span>}
+                                      {product.name} {capacityDisplay && <span className="text-gray-400 font-normal">({capacityDisplay})</span>}
                                     </div>
-                                    <div className="text-xs text-gray-400">{product.code}</div>
+                                    <div className="text-xs text-gray-400">{product.code} · ฿{product.default_price}</div>
                                   </div>
                                 </button>
                               );
@@ -953,17 +880,16 @@ export default function NewOrderPage() {
                 </div>
 
                 {branch.products.length === 0 && (
-                  <div className="text-center py-12 text-gray-500">
-                    <Package className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-                    <p>ยังไม่มีสินค้าในสาขานี้</p>
-                    <p className="text-sm">ค้นหาและเพิ่มสินค้าด้านบน</p>
+                  <div className="text-center py-8 text-gray-400">
+                    <Package className="w-10 h-10 mx-auto mb-2" />
+                    <p className="text-sm">เพิ่มสินค้าโดยพิมพ์ค้นหาด้านบน</p>
                   </div>
                 )}
 
                 {/* Branch Total */}
                 {branch.products.length > 0 && (
-                  <div className="mt-4 p-3 bg-gray-50 rounded-lg flex justify-between items-center">
-                    <span className="font-medium">ยอดรวมสาขานี้:</span>
+                  <div className="px-4 py-3 bg-gray-50 border-t flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-600">ยอดรวมสาขา {branch.address_name}</span>
                     <span className="text-lg font-bold text-[#E9B308]">
                       ฿{calculateBranchTotal(branch).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                     </span>
@@ -974,78 +900,62 @@ export default function NewOrderPage() {
           </div>
         )}
 
-        {/* Order Summary and Details */}
+        {/* Step 3: Summary */}
         {branchOrders.length > 0 && branchOrders.some(b => b.products.length > 0) && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Left Column (Desktop) / Second on Mobile - Delivery & Payment Info */}
-              <div className="order-2 md:order-1 space-y-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Notes */}
+              <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    วันที่ส่งของ <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={deliveryDate}
-                    onChange={(e) => setDeliveryDate(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    หมายเหตุ
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">หมายเหตุ</label>
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={2}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm"
                     placeholder="หมายเหตุสำหรับลูกค้า..."
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    หมายเหตุภายใน
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">หมายเหตุภายใน</label>
                   <textarea
                     value={internalNotes}
                     onChange={(e) => setInternalNotes(e.target.value)}
                     rows={2}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm"
                     placeholder="หมายเหตุภายใน (ไม่แสดงให้ลูกค้า)..."
                   />
                 </div>
               </div>
 
-              {/* Right Column (Desktop) / First on Mobile - Order Summary */}
-              <div className="order-1 md:order-2">
-                <h2 className="text-lg font-semibold mb-4">สรุปคำสั่งซื้อ</h2>
-                <div className="space-y-3">
-                  <div className="flex justify-between text-sm text-gray-600">
+              {/* Order Summary */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">สรุปคำสั่งซื้อ</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between text-gray-600">
                     <span>ยอดรวม (รวม VAT)</span>
                     <span>฿{itemsTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span>ส่วนลดรวม</span>
+                    <span className="text-gray-600">ส่วนลดรวม</span>
                     <input
                       type="number"
                       min="0"
                       step="0.01"
                       value={orderDiscount}
                       onChange={(e) => setOrderDiscount(parseFloat(e.target.value) || 0)}
-                      className="w-32 px-3 py-1 border border-gray-300 rounded text-right focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                      className="w-28 px-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
                     />
                   </div>
-                  <div className="flex justify-between text-sm text-gray-600 pt-2 border-t">
+                  <div className="flex justify-between text-gray-500 pt-2 border-t border-gray-200">
                     <span>ยอดก่อน VAT</span>
                     <span>฿{subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                   </div>
-                  <div className="flex justify-between text-sm text-gray-600">
+                  <div className="flex justify-between text-gray-500">
                     <span>VAT 7%</span>
                     <span>฿{vat.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                   </div>
-                  <div className="flex justify-between text-xl font-bold pt-3 border-t">
+                  <div className="flex justify-between text-lg font-bold pt-2 border-t border-gray-200">
                     <span>ยอดรวมสุทธิ</span>
                     <span className="text-[#E9B308]">฿{total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                   </div>
@@ -1061,24 +971,23 @@ export default function NewOrderPage() {
             <button
               type="button"
               onClick={() => router.back()}
-              className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+              className="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
             >
-              <X className="w-5 h-5" />
               ยกเลิก
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="bg-[#E9B308] text-[#00231F] px-6 py-2 rounded-lg hover:bg-[#d4a307] transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="bg-[#E9B308] text-[#00231F] px-5 py-2 rounded-lg hover:bg-[#d4a307] transition-colors flex items-center gap-2 disabled:opacity-50 text-sm font-medium"
             >
               {saving ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   กำลังบันทึก...
                 </>
               ) : (
                 <>
-                  <Save className="w-5 h-5" />
+                  <Save className="w-4 h-4" />
                   บันทึกคำสั่งซื้อ
                 </>
               )}

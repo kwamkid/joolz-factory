@@ -5,6 +5,8 @@ import { useState, useEffect, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import Layout from '@/components/layout/Layout';
+import DateRangePicker from '@/components/ui/DateRangePicker';
+import { DateValueType } from 'react-tailwindcss-datepicker';
 import {
   BarChart3,
   Calendar,
@@ -74,7 +76,6 @@ interface GroupedDataByProduct {
 }
 
 type GroupBy = 'date' | 'customer' | 'product';
-type DatePreset = 'today' | 'week' | 'month' | 'custom';
 
 export default function SalesReportPage() {
   const router = useRouter();
@@ -84,40 +85,24 @@ export default function SalesReportPage() {
   const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [groupedData, setGroupedData] = useState<any[]>([]);
   const [groupBy, setGroupBy] = useState<GroupBy>('date');
-  const [datePreset, setDatePreset] = useState<DatePreset>('month');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
 
-  // Calculate date range based on preset
-  useEffect(() => {
+  // Date range state - default to last 30 days
+  const getDefaultDateRange = (): DateValueType => {
     const today = new Date();
-    let start: Date;
-    let end: Date = today;
+    const start = new Date(today);
+    start.setMonth(today.getMonth() - 1);
+    return {
+      startDate: start,
+      endDate: today,
+    };
+  };
 
-    switch (datePreset) {
-      case 'today':
-        start = today;
-        break;
-      case 'week':
-        start = new Date(today);
-        start.setDate(today.getDate() - 7);
-        break;
-      case 'month':
-        start = new Date(today);
-        start.setMonth(today.getMonth() - 1);
-        break;
-      case 'custom':
-        return; // Don't auto-set for custom
-      default:
-        start = new Date(today);
-        start.setMonth(today.getMonth() - 1);
-    }
+  const [dateRange, setDateRange] = useState<DateValueType>(getDefaultDateRange);
 
-    setStartDate(start.toISOString().split('T')[0]);
-    setEndDate(end.toISOString().split('T')[0]);
-  }, [datePreset]);
+  const startDate = dateRange?.startDate ? String(dateRange.startDate) : '';
+  const endDate = dateRange?.endDate ? String(dateRange.endDate) : '';
 
   // Fetch report data
   const fetchReport = async () => {
@@ -296,55 +281,16 @@ export default function SalesReportPage() {
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Date Preset */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Date Range Picker */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">ช่วงเวลา</label>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { value: 'today', label: 'วันนี้' },
-                { value: 'week', label: '7 วัน' },
-                { value: 'month', label: '30 วัน' },
-                { value: 'custom', label: 'กำหนดเอง' }
-              ].map((preset) => (
-                <button
-                  key={preset.value}
-                  onClick={() => setDatePreset(preset.value as DatePreset)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    datePreset === preset.value
-                      ? 'bg-[#E9B308] text-[#00231F]'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
+            <DateRangePicker
+              value={dateRange}
+              onChange={(val) => setDateRange(val)}
+              placeholder="เลือกช่วงวันที่"
+            />
           </div>
-
-          {/* Custom Date Range */}
-          {datePreset === 'custom' && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">วันที่เริ่ม</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">วันที่สิ้นสุด</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                />
-              </div>
-            </>
-          )}
 
           {/* Group By */}
           <div>

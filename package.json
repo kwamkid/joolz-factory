@@ -16,7 +16,8 @@
     "next": "^16.0.8",
     "qrcode": "^1.5.4",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "react-tailwindcss-datepicker": "^2.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.25",

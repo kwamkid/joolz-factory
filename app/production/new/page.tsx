@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import Layout from '@/components/layout/Layout';
 import { getImageUrl } from '@/lib/utils/image';
+import DateRangePicker from '@/components/ui/DateRangePicker';
+import { DateValueType } from 'react-tailwindcss-datepicker';
 
 // Types
 interface Product {
@@ -152,20 +154,26 @@ export default function NewProductionPage() {
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
 
   // Form state
-  const [plannedDate, setPlannedDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
+  const [plannedDateValue, setPlannedDateValue] = useState<DateValueType>({
+    startDate: new Date(),
+    endDate: new Date(),
+  });
+  const plannedDate = plannedDateValue?.startDate ? String(plannedDateValue.startDate) : '';
   const [notes, setNotes] = useState<string>('');
   const [generatedBatchId, setGeneratedBatchId] = useState<string>('');
 
   // Date range for order summary
-  const getDefaultDate = () => {
+  const getDefaultTomorrow = () => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toISOString().split('T')[0];
+    return tomorrow;
   };
-  const [orderStartDate, setOrderStartDate] = useState(getDefaultDate);
-  const [orderEndDate, setOrderEndDate] = useState(getDefaultDate);
+  const [orderDateRange, setOrderDateRange] = useState<DateValueType>({
+    startDate: getDefaultTomorrow(),
+    endDate: getDefaultTomorrow(),
+  });
+  const orderStartDate = orderDateRange?.startDate ? String(orderDateRange.startDate) : '';
+  const orderEndDate = orderDateRange?.endDate ? String(orderDateRange.endDate) : '';
 
   // Product search state (per item)
   const [productSearches, setProductSearches] = useState<Record<string, string>>({});
@@ -702,12 +710,14 @@ export default function NewProductionPage() {
                   <Calendar className="w-4 h-4" />
                   วันที่ผลิต
                 </h2>
-                <input
-                  type="date"
-                  value={plannedDate}
-                  onChange={(e) => setPlannedDate(e.target.value)}
-                  className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
-                  required
+                <DateRangePicker
+                  value={plannedDateValue}
+                  onChange={(val) => setPlannedDateValue(val)}
+                  asSingle={true}
+                  useRange={false}
+                  showShortcuts={false}
+                  showFooter={false}
+                  placeholder="เลือกวันที่ผลิต"
                 />
               </div>
             </div>
@@ -773,23 +783,14 @@ export default function NewProductionPage() {
                 <div className="mt-4 space-y-4">
                   {/* Date Range */}
                   <div className="flex flex-wrap items-end gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">วันที่ส่ง (เริ่ม)</label>
-                      <input
-                        type="date"
-                        value={orderStartDate}
-                        onChange={(e) => setOrderStartDate(e.target.value)}
-                        className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
-                      />
-                    </div>
-                    <span className="text-gray-400 pb-2">-</span>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">ถึง</label>
-                      <input
-                        type="date"
-                        value={orderEndDate}
-                        onChange={(e) => setOrderEndDate(e.target.value)}
-                        className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                    <div className="flex-1 min-w-[250px]">
+                      <label className="block text-xs text-gray-500 mb-1">วันที่ส่ง</label>
+                      <DateRangePicker
+                        value={orderDateRange}
+                        onChange={(val) => setOrderDateRange(val)}
+                        showShortcuts={false}
+                        showFooter={false}
+                        placeholder="เลือกช่วงวันที่ส่ง"
                       />
                     </div>
                     <button

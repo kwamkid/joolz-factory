@@ -5,21 +5,15 @@ import { useRouter } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
+import DateRangePicker from '@/components/ui/DateRangePicker';
+import { DateValueType } from 'react-tailwindcss-datepicker';
 import {
   ShoppingCart,
   Plus,
   Search,
   Loader2,
-  Eye,
-  Calendar,
-  User,
-  Package,
-  DollarSign,
-  MapPin,
-  Filter,
   Trash2,
   ChevronRight,
-  CheckCircle2
 } from 'lucide-react';
 
 // Order interface
@@ -87,9 +81,10 @@ export default function OrdersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState('all'); // all, today, tomorrow, yesterday, custom
-  const [customStartDate, setCustomStartDate] = useState('');
-  const [customEndDate, setCustomEndDate] = useState('');
+  const [deliveryDateRange, setDeliveryDateRange] = useState<DateValueType>({
+    startDate: null,
+    endDate: null,
+  });
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -354,47 +349,25 @@ export default function OrdersPage() {
 
   // Helper function to check if date matches filter
   const checkDateFilter = (order: Order): boolean => {
-    // If filter is 'all', always return true regardless of delivery_date
-    if (dateFilter === 'all') return true;
-
-    // For other filters, require a delivery_date
+    if (!deliveryDateRange?.startDate && !deliveryDateRange?.endDate) return true;
     if (!order.delivery_date) return false;
 
     const deliveryDate = new Date(order.delivery_date);
     deliveryDate.setHours(0, 0, 0, 0);
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const startDate = deliveryDateRange.startDate ? new Date(String(deliveryDateRange.startDate)) : null;
+    const endDate = deliveryDateRange.endDate ? new Date(String(deliveryDateRange.endDate)) : null;
+    if (startDate) startDate.setHours(0, 0, 0, 0);
+    if (endDate) endDate.setHours(23, 59, 59, 999);
 
-    switch (dateFilter) {
-      case 'today':
-        return deliveryDate.getTime() === today.getTime();
-      case 'tomorrow':
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        return deliveryDate.getTime() === tomorrow.getTime();
-      case 'yesterday':
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        return deliveryDate.getTime() === yesterday.getTime();
-      case 'custom':
-        if (!customStartDate && !customEndDate) return true;
-        const startDate = customStartDate ? new Date(customStartDate) : null;
-        const endDate = customEndDate ? new Date(customEndDate) : null;
-        if (startDate) startDate.setHours(0, 0, 0, 0);
-        if (endDate) endDate.setHours(23, 59, 59, 999);
-
-        if (startDate && endDate) {
-          return deliveryDate >= startDate && deliveryDate <= endDate;
-        } else if (startDate) {
-          return deliveryDate >= startDate;
-        } else if (endDate) {
-          return deliveryDate <= endDate;
-        }
-        return true;
-      default:
-        return true;
+    if (startDate && endDate) {
+      return deliveryDate >= startDate && deliveryDate <= endDate;
+    } else if (startDate) {
+      return deliveryDate >= startDate;
+    } else if (endDate) {
+      return deliveryDate <= endDate;
     }
+    return true;
   };
 
   // Calculate filtered counts for each status
@@ -431,7 +404,7 @@ export default function OrdersPage() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, paymentFilter, dateFilter, customStartDate, customEndDate]);
+  }, [searchTerm, statusFilter, paymentFilter, deliveryDateRange]);
 
   // Page navigation functions
   const goToFirstPage = () => setCurrentPage(1);
@@ -511,221 +484,116 @@ export default function OrdersPage() {
           </div>
         )}
 
-        {/* Consolidated Filters Section */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="space-y-4">
-            {/* Search */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Search className="w-4 h-4 inline mr-1" />
-                ค้นหา
-              </label>
+        {/* Filters Section */}
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="space-y-3">
+            {/* Row 1: Search + Date Range */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="ค้นหาเลขที่คำสั่งซื้อ, ชื่อลูกค้า, รหัสลูกค้า..."
+                  placeholder="ค้นหาเลขที่, ชื่อลูกค้า, รหัส..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                  className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
                 />
               </div>
+              <DateRangePicker
+                value={deliveryDateRange}
+                onChange={(val) => setDeliveryDateRange(val)}
+                placeholder="วันที่ส่ง - ทั้งหมด"
+              />
             </div>
 
-            {/* Date and Payment Filters - Side by Side */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Date Filter - Pills */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <Calendar className="w-4 h-4 inline mr-1" />
-                  วันที่ส่ง
-                </label>
-                <div className="flex gap-2 flex-wrap">
-                  <button
-                    onClick={() => setDateFilter('all')}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      dateFilter === 'all'
-                        ? 'bg-gray-700 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    ทั้งหมด
-                  </button>
-                  <button
-                    onClick={() => setDateFilter('yesterday')}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      dateFilter === 'yesterday'
-                        ? 'bg-gray-700 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    เมื่อวาน
-                  </button>
-                  <button
-                    onClick={() => setDateFilter('today')}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      dateFilter === 'today'
-                        ? 'bg-gray-700 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    วันนี้
-                  </button>
-                  <button
-                    onClick={() => setDateFilter('tomorrow')}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      dateFilter === 'tomorrow'
-                        ? 'bg-gray-700 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    พรุ่งนี้
-                  </button>
-                  <button
-                    onClick={() => setDateFilter('custom')}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      dateFilter === 'custom'
-                        ? 'bg-gray-700 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    กำหนดเอง
-                  </button>
-                </div>
-                {dateFilter === 'custom' && (
-                  <div className="flex gap-2 items-center mt-2">
-                    <input
-                      type="date"
-                      value={customStartDate}
-                      onChange={(e) => setCustomStartDate(e.target.value)}
-                      className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                      placeholder="วันที่เริ่มต้น"
-                    />
-                    <span className="text-gray-500 text-sm">ถึง</span>
-                    <input
-                      type="date"
-                      value={customEndDate}
-                      onChange={(e) => setCustomEndDate(e.target.value)}
-                      className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                      placeholder="วันที่สิ้นสุด"
-                    />
-                  </div>
-                )}
-              </div>
+            {/* Row 2: Order Status Pills + Payment Status Pills */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Order Status */}
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  statusFilter === 'all'
+                    ? 'bg-gray-700 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                ทั้งหมด {getFilteredCount()}
+              </button>
+              <button
+                onClick={() => setStatusFilter('new')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  statusFilter === 'new'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                }`}
+              >
+                ใหม่ {getFilteredCount('new')}
+              </button>
+              <button
+                onClick={() => setStatusFilter('shipping')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  statusFilter === 'shipping'
+                    ? 'bg-yellow-500 text-white'
+                    : 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
+                }`}
+              >
+                กำลังส่ง {getFilteredCount('shipping')}
+              </button>
+              <button
+                onClick={() => setStatusFilter('completed')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  statusFilter === 'completed'
+                    ? 'bg-green-500 text-white'
+                    : 'bg-green-50 text-green-700 hover:bg-green-100'
+                }`}
+              >
+                สำเร็จ {getFilteredCount('completed')}
+              </button>
+              <button
+                onClick={() => setStatusFilter('cancelled')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  statusFilter === 'cancelled'
+                    ? 'bg-red-500 text-white'
+                    : 'bg-red-50 text-red-700 hover:bg-red-100'
+                }`}
+              >
+                ยกเลิก {getFilteredCount('cancelled')}
+              </button>
 
-              {/* Payment Status Filter - Pills */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <DollarSign className="w-4 h-4 inline mr-1" />
-                  สถานะการชำระเงิน
-                </label>
-                <div className="flex gap-2 flex-wrap">
-                  <button
-                    onClick={() => setPaymentFilter('all')}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      paymentFilter === 'all'
-                        ? 'bg-gray-700 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    ทั้งหมด
-                  </button>
-                  <button
-                    onClick={() => setPaymentFilter('pending')}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      paymentFilter === 'pending'
-                        ? 'bg-orange-500 text-white'
-                        : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                    }`}
-                  >
-                    รอชำระ
-                  </button>
-                  <button
-                    onClick={() => setPaymentFilter('paid')}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      paymentFilter === 'paid'
-                        ? 'bg-green-500 text-white'
-                        : 'bg-green-100 text-green-700 hover:bg-green-200'
-                    }`}
-                  >
-                    ชำระแล้ว
-                  </button>
-                </div>
-              </div>
-            </div>
+              {/* Divider */}
+              <div className="w-px h-5 bg-gray-300 mx-1 hidden md:block" />
 
-            {/* Order Status Filter - Tab Buttons */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Filter className="w-4 h-4 inline mr-1" />
-                สถานะคำสั่งซื้อ
-              </label>
-              <div className="flex gap-3 overflow-x-auto pb-2">
-                {/* ทั้งหมด */}
-                <button
-                  onClick={() => setStatusFilter('all')}
-                  className={`flex-shrink-0 rounded-xl px-6 py-4 min-w-[120px] text-center transition-all ${
-                    statusFilter === 'all'
-                      ? 'bg-gray-700 text-white shadow-lg border-2 border-gray-800'
-                      : 'bg-white text-gray-700 border-2 border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="text-sm font-medium mb-1">ทั้งหมด</div>
-                  <div className="text-2xl font-bold">{getFilteredCount()}</div>
-                </button>
-
-                {/* ใหม่ */}
-                <button
-                  onClick={() => setStatusFilter('new')}
-                  className={`flex-shrink-0 rounded-xl px-6 py-4 min-w-[120px] text-center transition-all ${
-                    statusFilter === 'new'
-                      ? 'bg-blue-500 text-white shadow-lg border-2 border-blue-600'
-                      : 'bg-blue-50 text-blue-700 border-2 border-blue-100 hover:border-blue-200'
-                  }`}
-                >
-                  <div className="text-sm font-medium mb-1">ใหม่</div>
-                  <div className="text-2xl font-bold">{getFilteredCount('new')}</div>
-                </button>
-
-                {/* กำลังส่ง */}
-                <button
-                  onClick={() => setStatusFilter('shipping')}
-                  className={`flex-shrink-0 rounded-xl px-6 py-4 min-w-[120px] text-center transition-all ${
-                    statusFilter === 'shipping'
-                      ? 'bg-yellow-500 text-white shadow-lg border-2 border-yellow-600'
-                      : 'bg-yellow-50 text-yellow-700 border-2 border-yellow-100 hover:border-yellow-200'
-                  }`}
-                >
-                  <div className="text-sm font-medium mb-1">กำลังส่ง</div>
-                  <div className="text-2xl font-bold">{getFilteredCount('shipping')}</div>
-                </button>
-
-                {/* สำเร็จ */}
-                <button
-                  onClick={() => setStatusFilter('completed')}
-                  className={`flex-shrink-0 rounded-xl px-6 py-4 min-w-[120px] text-center transition-all ${
-                    statusFilter === 'completed'
-                      ? 'bg-green-500 text-white shadow-lg border-2 border-green-600'
-                      : 'bg-green-50 text-green-700 border-2 border-green-100 hover:border-green-200'
-                  }`}
-                >
-                  <div className="text-sm font-medium mb-1">สำเร็จ</div>
-                  <div className="text-2xl font-bold">{getFilteredCount('completed')}</div>
-                </button>
-
-                {/* ยกเลิก */}
-                <button
-                  onClick={() => setStatusFilter('cancelled')}
-                  className={`flex-shrink-0 rounded-xl px-6 py-4 min-w-[120px] text-center transition-all ${
-                    statusFilter === 'cancelled'
-                      ? 'bg-red-500 text-white shadow-lg border-2 border-red-600'
-                      : 'bg-red-50 text-red-700 border-2 border-red-100 hover:border-red-200'
-                  }`}
-                >
-                  <div className="text-sm font-medium mb-1">ยกเลิก</div>
-                  <div className="text-2xl font-bold">{getFilteredCount('cancelled')}</div>
-                </button>
-              </div>
+              {/* Payment Status */}
+              <button
+                onClick={() => setPaymentFilter('all')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  paymentFilter === 'all'
+                    ? 'bg-gray-700 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                ชำระ: ทั้งหมด
+              </button>
+              <button
+                onClick={() => setPaymentFilter('pending')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  paymentFilter === 'pending'
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-orange-50 text-orange-700 hover:bg-orange-100'
+                }`}
+              >
+                รอชำระ
+              </button>
+              <button
+                onClick={() => setPaymentFilter('paid')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  paymentFilter === 'paid'
+                    ? 'bg-green-500 text-white'
+                    : 'bg-green-50 text-green-700 hover:bg-green-100'
+                }`}
+              >
+                ชำระแล้ว
+              </button>
             </div>
           </div>
         </div>
@@ -796,7 +664,7 @@ export default function OrdersPage() {
                 {paginatedOrders.length === 0 ? (
                   <tr>
                     <td colSpan={userProfile?.role === 'admin' ? 7 : 6} className="px-6 py-12 text-center text-gray-500">
-                      {searchTerm || statusFilter !== 'all' || paymentFilter !== 'all' || dateFilter !== 'all' ? 'ไม่พบคำสั่งซื้อที่ค้นหา' : 'ยังไม่มีคำสั่งซื้อ'}
+                      {searchTerm || statusFilter !== 'all' || paymentFilter !== 'all' || deliveryDateRange?.startDate ? 'ไม่พบคำสั่งซื้อที่ค้นหา' : 'ยังไม่มีคำสั่งซื้อ'}
                     </td>
                   </tr>
                 ) : (

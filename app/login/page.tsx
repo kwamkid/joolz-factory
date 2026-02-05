@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { useAuth } from '@/lib/auth-context';
 import { Mail, Lock, AlertCircle, Loader2 } from 'lucide-react';
 
@@ -92,9 +93,9 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-[#E9B308] mb-2">
-            JOOLZ<span className="text-white">Factory</span>
-          </h1>
+          <div className="flex justify-center mb-3">
+            <Image src="/logo.svg" alt="JOOLZ Factory" width={150} height={98} priority />
+          </div>
           <p className="text-gray-400 text-sm">
             ระบบจัดการโรงงานผลิตน้ำผลไม้
           </p>

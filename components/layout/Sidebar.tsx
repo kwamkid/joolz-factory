@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -185,10 +186,10 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Mobile Menu Button */}
+      {/* Mobile Menu Button - positioned inside the header bar */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-[#00231F] border border-[#E9B308]/20 rounded-lg"
+        className="lg:hidden fixed top-3 left-3 z-50 p-2 rounded-lg hover:bg-white/10 transition-colors"
       >
         {isOpen ? (
           <X className="w-6 h-6 text-[#E9B308]" />
@@ -213,10 +214,8 @@ export default function Sidebar() {
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="flex items-center justify-center h-16 border-b border-[#E9B308]/20">
-            <h1 className="text-2xl font-bold text-[#E9B308]">
-              JOOLZ<span className="text-white">Factory</span>
-            </h1>
+          <div className="flex items-center justify-center h-16 border-b border-[#E9B308]/20 px-4">
+            <Image src="/logo.svg" alt="JOOLZ Factory" width={100} height={65} className="h-10 w-auto" priority />
           </div>
 
           {/* User Info */}

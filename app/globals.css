@@ -10,12 +10,12 @@
   }
 
   html {
-    font-size: 18px; /* Base font size เปลี่ยนจาก 16px เป็น 18px */
+    font-size: 16px;
   }
 
   body {
     @apply bg-gray-50 text-gray-900;
-    font-size: 1rem; /* 18px (ตาม html base) */
+    font-size: 1rem;
   }
 }
 

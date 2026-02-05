@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useAuth } from '@/lib/auth-context';
 import {
   Bell,
@@ -113,8 +114,13 @@ export default function Header() {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
-      <div className="flex items-center justify-end h-16 px-4 lg:px-6">
+    <header className="bg-[#00231F] lg:bg-white border-b border-[#E9B308]/20 lg:border-gray-200 sticky top-0 z-30">
+      <div className="relative flex items-center justify-end h-16 px-4 lg:px-6">
+        {/* Mobile Logo (absolute center) */}
+        <div className="lg:hidden absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+          <Image src="/logo.svg" alt="JOOLZ Factory" width={100} height={65} className="h-10 w-auto" />
+        </div>
+
         {/* Right section */}
         <div className="flex items-center space-x-4">
           {/* Current Time */}
@@ -129,7 +135,7 @@ export default function Header() {
                 setShowNotifications(!showNotifications);
                 setShowUserMenu(false);
               }}
-              className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              className="relative p-2 text-[#E9B308] lg:text-gray-600 hover:bg-white/10 lg:hover:bg-gray-100 rounded-lg transition-colors"
             >
               <Bell className="w-5 h-5" />
               {unreadCount > 0 && (
@@ -197,7 +203,7 @@ export default function Header() {
                 setShowUserMenu(!showUserMenu);
                 setShowNotifications(false);
               }}
-              className="flex items-center space-x-2 p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              className="flex items-center space-x-2 p-2 text-white lg:text-gray-700 hover:bg-white/10 lg:hover:bg-gray-100 rounded-lg transition-colors"
             >
               <div className="w-8 h-8 bg-[#E9B308] rounded-full flex items-center justify-center">
                 <span className="text-[#00231F] font-semibold text-sm">
