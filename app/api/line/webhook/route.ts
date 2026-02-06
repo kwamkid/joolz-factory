@@ -98,38 +98,65 @@ export async function POST(request: NextRequest) {
 
 // Process individual LINE event
 async function processEvent(event: LineEvent) {
+  const sourceType = event.source.type;
   const lineUserId = event.source.userId;
+  const groupId = event.source.groupId;
+  const roomId = event.source.roomId;
 
-  if (!lineUserId) {
-    console.log('No userId in event');
+  // Determine the contact identifier
+  // For groups/rooms: use groupId/roomId as the main identifier
+  // For 1:1 chat: use userId
+  let contactId: string;
+  let isGroup = false;
+
+  if (sourceType === 'group' && groupId) {
+    contactId = groupId;
+    isGroup = true;
+  } else if (sourceType === 'room' && roomId) {
+    contactId = roomId;
+    isGroup = true;
+  } else if (lineUserId) {
+    contactId = lineUserId;
+  } else {
+    console.log('No valid identifier in event');
     return;
   }
 
   // Handle message events
   if (event.type === 'message' && event.message) {
-    await handleMessageEvent(lineUserId, event);
+    await handleMessageEvent(contactId, event, isGroup, lineUserId);
   }
 
-  // Handle follow event (user adds friend)
-  if (event.type === 'follow') {
+  // Handle follow event (user adds friend) - only for 1:1
+  if (event.type === 'follow' && lineUserId && !isGroup) {
     await handleFollowEvent(lineUserId);
   }
 
-  // Handle unfollow event (user blocks)
-  if (event.type === 'unfollow') {
+  // Handle unfollow event (user blocks) - only for 1:1
+  if (event.type === 'unfollow' && lineUserId && !isGroup) {
     await handleUnfollowEvent(lineUserId);
+  }
+
+  // Handle join event (bot joins group)
+  if (event.type === 'join' && isGroup) {
+    await handleJoinGroupEvent(contactId, sourceType === 'group');
+  }
+
+  // Handle leave event (bot leaves group)
+  if (event.type === 'leave' && isGroup) {
+    await handleLeaveGroupEvent(contactId);
   }
 }
 
 // Handle incoming message
-async function handleMessageEvent(lineUserId: string, event: LineEvent) {
+async function handleMessageEvent(contactId: string, event: LineEvent, isGroup: boolean, senderUserId?: string) {
   const message = event.message!;
 
   // Get or create LINE contact
-  const contact = await getOrCreateLineContact(lineUserId);
+  const contact = await getOrCreateLineContact(contactId, isGroup, senderUserId);
 
   if (!contact) {
-    console.error('Failed to get/create contact for:', lineUserId);
+    console.error('Failed to get/create contact for:', contactId);
     return;
   }
 
@@ -223,29 +250,80 @@ async function handleUnfollowEvent(lineUserId: string) {
   }
 }
 
-// Get or create LINE contact
-async function getOrCreateLineContact(lineUserId: string) {
+// Handle join group event
+async function handleJoinGroupEvent(groupId: string, isGroup: boolean) {
+  // Get group summary (name)
+  const groupInfo = await getGroupInfo(groupId, isGroup);
+
+  const { error } = await supabaseAdmin
+    .from('line_contacts')
+    .upsert({
+      line_user_id: groupId,
+      display_name: groupInfo?.groupName || groupInfo?.roomName || 'กลุ่มลูกค้า',
+      picture_url: groupInfo?.pictureUrl || null,
+      status: 'active',
+      followed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'line_user_id'
+    });
+
+  if (error) {
+    console.error('Failed to create/update group contact:', error);
+  }
+}
+
+// Handle leave group event
+async function handleLeaveGroupEvent(groupId: string) {
+  const { error } = await supabaseAdmin
+    .from('line_contacts')
+    .update({
+      status: 'blocked',
+      updated_at: new Date().toISOString()
+    })
+    .eq('line_user_id', groupId);
+
+  if (error) {
+    console.error('Failed to update group contact on leave:', error);
+  }
+}
+
+// Get or create LINE contact (supports both 1:1 and group)
+async function getOrCreateLineContact(contactId: string, isGroup: boolean, senderUserId?: string) {
   // Check if contact exists
   const { data: existing } = await supabaseAdmin
     .from('line_contacts')
     .select('*')
-    .eq('line_user_id', lineUserId)
+    .eq('line_user_id', contactId)
     .single();
 
   if (existing) {
     return existing;
   }
 
-  // Get LINE profile
-  const profile = await getLineProfile(lineUserId);
+  // Get profile/info based on type
+  let displayName = 'Unknown';
+  let pictureUrl: string | null = null;
+
+  if (isGroup) {
+    // For groups, try to get group info
+    const groupInfo = await getGroupInfo(contactId, true);
+    displayName = groupInfo?.groupName || groupInfo?.roomName || 'กลุ่มลูกค้า';
+    pictureUrl = groupInfo?.pictureUrl || null;
+  } else {
+    // For 1:1 chat, get user profile
+    const profile = await getLineProfile(contactId);
+    displayName = profile?.displayName || 'Unknown';
+    pictureUrl = profile?.pictureUrl || null;
+  }
 
   // Create new contact
   const { data: newContact, error } = await supabaseAdmin
     .from('line_contacts')
     .insert({
-      line_user_id: lineUserId,
-      display_name: profile?.displayName || 'Unknown',
-      picture_url: profile?.pictureUrl || null,
+      line_user_id: contactId,
+      display_name: displayName,
+      picture_url: pictureUrl,
       status: 'active',
       unread_count: 0,
       created_at: new Date().toISOString(),
@@ -260,6 +338,38 @@ async function getOrCreateLineContact(lineUserId: string) {
   }
 
   return newContact;
+}
+
+// Get LINE group/room info
+async function getGroupInfo(groupId: string, isGroup: boolean) {
+  const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+
+  if (!LINE_CHANNEL_ACCESS_TOKEN) {
+    console.error('LINE_CHANNEL_ACCESS_TOKEN not set');
+    return null;
+  }
+
+  try {
+    const endpoint = isGroup
+      ? `https://api.line.me/v2/bot/group/${groupId}/summary`
+      : `https://api.line.me/v2/bot/room/${groupId}/summary`;
+
+    const response = await fetch(endpoint, {
+      headers: {
+        'Authorization': `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`
+      }
+    });
+
+    if (!response.ok) {
+      console.error('Failed to get group info:', response.status);
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching group info:', error);
+    return null;
+  }
 }
 
 // Get LINE user profile
