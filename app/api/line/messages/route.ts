@@ -100,6 +100,29 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Message types
+interface TextMessageBody {
+  contact_id: string;
+  message: string;
+  type?: 'text';
+}
+
+interface ImageMessageBody {
+  contact_id: string;
+  type: 'image';
+  imageUrl: string;
+  previewUrl?: string;
+}
+
+interface StickerMessageBody {
+  contact_id: string;
+  type: 'sticker';
+  packageId: string;
+  stickerId: string;
+}
+
+type MessageBody = TextMessageBody | ImageMessageBody | StickerMessageBody;
+
 // POST - Send a message
 export async function POST(request: NextRequest) {
   try {
@@ -112,14 +135,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const { contact_id, message } = body;
+    const body: MessageBody = await request.json();
+    const { contact_id } = body;
+    const messageType = body.type || 'text';
 
-    if (!contact_id || !message) {
+    if (!contact_id) {
       return NextResponse.json(
-        { error: 'contact_id and message are required' },
+        { error: 'contact_id is required' },
         { status: 400 }
       );
+    }
+
+    // Validate based on message type
+    if (messageType === 'text') {
+      const textBody = body as TextMessageBody;
+      if (!textBody.message) {
+        return NextResponse.json(
+          { error: 'message is required for text type' },
+          { status: 400 }
+        );
+      }
+    } else if (messageType === 'image') {
+      const imageBody = body as ImageMessageBody;
+      if (!imageBody.imageUrl) {
+        return NextResponse.json(
+          { error: 'imageUrl is required for image type' },
+          { status: 400 }
+        );
+      }
+    } else if (messageType === 'sticker') {
+      const stickerBody = body as StickerMessageBody;
+      if (!stickerBody.packageId || !stickerBody.stickerId) {
+        return NextResponse.json(
+          { error: 'packageId and stickerId are required for sticker type' },
+          { status: 400 }
+        );
+      }
     }
 
     // Get contact's LINE user ID
@@ -137,7 +188,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Send message via LINE API
-    const lineResponse = await sendLineMessage(contact.line_user_id, message);
+    const lineResponse = await sendLineMessage(contact.line_user_id, body);
 
     if (!lineResponse.success) {
       return NextResponse.json(
@@ -146,14 +197,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Prepare message data for database
+    let messageContent = '';
+    let rawMessage: Record<string, unknown> = {};
+
+    if (messageType === 'text') {
+      messageContent = (body as TextMessageBody).message;
+    } else if (messageType === 'image') {
+      const imageBody = body as ImageMessageBody;
+      messageContent = '[รูปภาพ]';
+      rawMessage = { imageUrl: imageBody.imageUrl };
+    } else if (messageType === 'sticker') {
+      const stickerBody = body as StickerMessageBody;
+      messageContent = '[สติกเกอร์]';
+      rawMessage = { packageId: stickerBody.packageId, stickerId: stickerBody.stickerId };
+    }
+
     // Save message to database
     const { data: savedMessage, error: saveError } = await supabaseAdmin
       .from('line_messages')
       .insert({
         line_contact_id: contact_id,
         direction: 'outgoing',
-        message_type: 'text',
-        content: message,
+        message_type: messageType,
+        content: messageContent,
+        raw_message: Object.keys(rawMessage).length > 0 ? rawMessage : null,
         sent_by: userId,
         sent_at: new Date().toISOString(),
         created_at: new Date().toISOString()
@@ -191,12 +259,39 @@ export async function POST(request: NextRequest) {
 }
 
 // Send message via LINE Messaging API
-async function sendLineMessage(lineUserId: string, message: string): Promise<{ success: boolean; error?: string }> {
+async function sendLineMessage(lineUserId: string, body: MessageBody): Promise<{ success: boolean; error?: string }> {
   if (!LINE_CHANNEL_ACCESS_TOKEN) {
     return { success: false, error: 'LINE_CHANNEL_ACCESS_TOKEN not configured' };
   }
 
   try {
+    // Build LINE message object based on type
+    let lineMessage: Record<string, unknown>;
+    const messageType = body.type || 'text';
+
+    if (messageType === 'text') {
+      lineMessage = {
+        type: 'text',
+        text: (body as TextMessageBody).message
+      };
+    } else if (messageType === 'image') {
+      const imageBody = body as ImageMessageBody;
+      lineMessage = {
+        type: 'image',
+        originalContentUrl: imageBody.imageUrl,
+        previewImageUrl: imageBody.previewUrl || imageBody.imageUrl
+      };
+    } else if (messageType === 'sticker') {
+      const stickerBody = body as StickerMessageBody;
+      lineMessage = {
+        type: 'sticker',
+        packageId: stickerBody.packageId,
+        stickerId: stickerBody.stickerId
+      };
+    } else {
+      return { success: false, error: 'Unsupported message type' };
+    }
+
     const response = await fetch('https://api.line.me/v2/bot/message/push', {
       method: 'POST',
       headers: {
@@ -205,12 +300,7 @@ async function sendLineMessage(lineUserId: string, message: string): Promise<{ s
       },
       body: JSON.stringify({
         to: lineUserId,
-        messages: [
-          {
-            type: 'text',
-            text: message
-          }
-        ]
+        messages: [lineMessage]
       })
     });
 

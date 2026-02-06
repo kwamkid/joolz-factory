@@ -18,7 +18,9 @@ import {
   Phone,
   ShoppingCart,
   AlertCircle,
-  RotateCcw
+  RotateCcw,
+  ImagePlus,
+  Smile
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -109,6 +111,13 @@ export default function LineChatPage() {
   const [customerSearch, setCustomerSearch] = useState('');
   const [loadingCustomers, setLoadingCustomers] = useState(false);
 
+  // Image upload
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  // Sticker picker
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+
   // Fetch contacts
   useEffect(() => {
     if (!authLoading && userProfile) {
@@ -143,7 +152,7 @@ export default function LineChatPage() {
           schema: 'public',
           table: 'line_messages'
         },
-        (payload) => {
+        async (payload) => {
           const newMsg = payload.new as LineMessage;
 
           // If this message is for the selected contact, add it to messages
@@ -163,6 +172,17 @@ export default function LineChatPage() {
               // New incoming message - just add it
               return [...prev, newMsg];
             });
+
+            // If incoming message for selected contact, reset unread in database
+            if (newMsg.direction === 'incoming') {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session) {
+                // Mark as read by fetching messages (which resets unread_count)
+                fetch(`/api/line/messages?contact_id=${selectedContact.id}&limit=1`, {
+                  headers: { 'Authorization': `Bearer ${session.access_token}` }
+                }).catch(() => {});
+              }
+            }
           }
 
           // Refresh contacts to update unread counts and last_message_at
@@ -211,8 +231,20 @@ export default function LineChatPage() {
       if (!response.ok) throw new Error('Failed to fetch contacts');
 
       const result = await response.json();
-      setContacts(result.contacts || []);
-      setTotalUnread(result.summary?.totalUnread || 0);
+      let contactsList = result.contacts || [];
+
+      // If we have a selected contact open, set its unread to 0 (since user is viewing it)
+      if (selectedContact) {
+        contactsList = contactsList.map((c: LineContact) =>
+          c.id === selectedContact.id ? { ...c, unread_count: 0 } : c
+        );
+      }
+
+      setContacts(contactsList);
+
+      // Calculate total unread, excluding selected contact
+      const calculatedUnread = contactsList.reduce((sum: number, c: LineContact) => sum + c.unread_count, 0);
+      setTotalUnread(calculatedUnread);
     } catch (error) {
       console.error('Error fetching contacts:', error);
     } finally {
@@ -341,6 +373,179 @@ export default function LineChatPage() {
       }
     })();
   };
+
+  // Handle image upload
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedContact) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('กรุณาเลือกไฟล์รูปภาพ');
+      return;
+    }
+
+    // Validate file size (max 10MB for LINE)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('ไฟล์ใหญ่เกินไป (สูงสุด 10MB)');
+      return;
+    }
+
+    const tempId = `temp-${Date.now()}`;
+    const localUrl = URL.createObjectURL(file);
+
+    // Optimistic update
+    const optimisticMessage: LineMessage = {
+      id: tempId,
+      _tempId: tempId,
+      line_contact_id: selectedContact.id,
+      direction: 'outgoing',
+      message_type: 'image',
+      content: '[รูปภาพ]',
+      raw_message: { imageUrl: localUrl },
+      created_at: new Date().toISOString(),
+      _status: 'sending'
+    };
+    setMessages(prev => [...prev, optimisticMessage]);
+    setUploadingImage(true);
+
+    const contactId = selectedContact.id;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No session');
+
+      // Upload to Supabase Storage
+      const fileName = `admin-images/${Date.now()}-${file.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from('chat-media')
+        .upload(fileName, file, { contentType: file.type });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('chat-media')
+        .getPublicUrl(fileName);
+
+      const imageUrl = urlData.publicUrl;
+
+      // Send via LINE API
+      const response = await fetch('/api/line/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          contact_id: contactId,
+          type: 'image',
+          imageUrl
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to send image');
+      }
+
+      const result = await response.json();
+
+      // Update optimistic message
+      if (result.message) {
+        setMessages(prev => prev.map(m =>
+          m._tempId === tempId
+            ? { ...result.message, _status: 'sent' as const }
+            : m
+        ));
+      }
+
+      URL.revokeObjectURL(localUrl);
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      setMessages(prev => prev.map(m =>
+        m._tempId === tempId ? { ...m, _status: 'failed' as const } : m
+      ));
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Send sticker
+  const sendSticker = (packageId: string, stickerId: string) => {
+    if (!selectedContact) return;
+
+    const tempId = `temp-${Date.now()}`;
+
+    // Optimistic update
+    const optimisticMessage: LineMessage = {
+      id: tempId,
+      _tempId: tempId,
+      line_contact_id: selectedContact.id,
+      direction: 'outgoing',
+      message_type: 'sticker',
+      content: '[สติกเกอร์]',
+      raw_message: { packageId, stickerId },
+      created_at: new Date().toISOString(),
+      _status: 'sending'
+    };
+    setMessages(prev => [...prev, optimisticMessage]);
+    setShowStickerPicker(false);
+
+    const contactId = selectedContact.id;
+
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('No session');
+
+        const response = await fetch('/api/line/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({
+            contact_id: contactId,
+            type: 'sticker',
+            packageId,
+            stickerId
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to send sticker');
+        }
+
+        const result = await response.json();
+
+        if (result.message) {
+          setMessages(prev => prev.map(m =>
+            m._tempId === tempId
+              ? { ...result.message, _status: 'sent' as const }
+              : m
+          ));
+        }
+      } catch (error) {
+        console.error('Error sending sticker:', error);
+        setMessages(prev => prev.map(m =>
+          m._tempId === tempId ? { ...m, _status: 'failed' as const } : m
+        ));
+      }
+    })();
+  };
+
+  // LINE Official Stickers (free to use)
+  const officialStickers = [
+    // Brown & Cony
+    { packageId: '11537', stickers: ['52002734', '52002735', '52002736', '52002737', '52002738', '52002739', '52002740', '52002741'] },
+    // Moon
+    { packageId: '11538', stickers: ['51626494', '51626495', '51626496', '51626497', '51626498', '51626499', '51626500', '51626501'] },
+    // Boss
+    { packageId: '11539', stickers: ['52114110', '52114111', '52114112', '52114113', '52114114', '52114115', '52114116', '52114117'] },
+  ];
 
   const fetchCustomers = async (search: string) => {
     try {
@@ -778,8 +983,76 @@ export default function LineChatPage() {
               </div>
 
               {/* Message Input */}
-              <div className="p-4 border-t border-gray-200 bg-white">
+              <div className="p-4 border-t border-gray-200 bg-white relative">
+                {/* Sticker Picker */}
+                {showStickerPicker && (
+                  <div className="absolute bottom-full left-0 right-0 bg-white border border-gray-200 rounded-t-lg shadow-lg max-h-64 overflow-y-auto">
+                    <div className="p-2 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+                      <span className="text-sm font-medium text-gray-700">เลือกสติกเกอร์</span>
+                      <button
+                        onClick={() => setShowStickerPicker(false)}
+                        className="p-1 text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="p-2">
+                      {officialStickers.map((pack) => (
+                        <div key={pack.packageId} className="mb-3">
+                          <div className="grid grid-cols-4 gap-2">
+                            {pack.stickers.map((stickerId) => (
+                              <button
+                                key={stickerId}
+                                onClick={() => sendSticker(pack.packageId, stickerId)}
+                                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                              >
+                                <img
+                                  src={`https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/iPhone/sticker.png`}
+                                  alt="sticker"
+                                  className="w-12 h-12 object-contain"
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2">
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                  />
+
+                  {/* Image upload button */}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingImage}
+                    className="p-2 text-gray-500 hover:text-[#06C755] hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
+                    title="ส่งรูปภาพ"
+                  >
+                    {uploadingImage ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <ImagePlus className="w-5 h-5" />
+                    )}
+                  </button>
+
+                  {/* Sticker button */}
+                  <button
+                    onClick={() => setShowStickerPicker(!showStickerPicker)}
+                    className={`p-2 rounded-full transition-colors ${showStickerPicker ? 'text-[#06C755] bg-[#06C755]/10' : 'text-gray-500 hover:text-[#06C755] hover:bg-gray-100'}`}
+                    title="ส่งสติกเกอร์"
+                  >
+                    <Smile className="w-5 h-5" />
+                  </button>
+
                   <input
                     ref={inputRef}
                     type="text"
