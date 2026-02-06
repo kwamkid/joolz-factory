@@ -13,6 +13,11 @@ const nextConfig: NextConfig = {
         hostname: 'sprofile.line-scdn.net',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'stickershop.line-scdn.net',
+        pathname: '/**',
+      },
     ],
   },
 };

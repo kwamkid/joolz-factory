@@ -49,6 +49,16 @@ interface LineEvent {
     text?: string;
     fileName?: string;
     fileSize?: number;
+    // Sticker
+    stickerId?: string;
+    packageId?: string;
+    stickerResourceType?: string;
+    // Location
+    title?: string;
+    address?: string;
+    latitude?: number;
+    longitude?: number;
+    // Content provider
     contentProvider?: {
       type: string;
       originalContentUrl?: string;
@@ -160,29 +170,68 @@ async function handleMessageEvent(contactId: string, event: LineEvent, isGroup: 
     return;
   }
 
-  // Prepare message content based on type
+  // Get sender profile (for group messages or 1:1)
+  let senderName: string | null = null;
+  let senderPictureUrl: string | null = null;
+
+  if (senderUserId) {
+    // For groups: get sender profile from group member API
+    // For 1:1: get user profile
+    if (isGroup) {
+      const memberProfile = await getGroupMemberProfile(contactId, senderUserId, event.source.type === 'group');
+      senderName = memberProfile?.displayName || null;
+      senderPictureUrl = memberProfile?.pictureUrl || null;
+    } else {
+      const profile = await getLineProfile(senderUserId);
+      senderName = profile?.displayName || null;
+      senderPictureUrl = profile?.pictureUrl || null;
+    }
+  }
+
+  // Prepare message content and metadata based on type
   let messageContent = '';
-  let messageType = message.type;
+  const messageType = message.type;
+  const metadata: Record<string, unknown> = {};
 
   if (message.type === 'text' && message.text) {
     messageContent = message.text;
   } else if (message.type === 'image') {
     messageContent = '[รูปภาพ]';
+    // For LINE provider images, fetch and store in Supabase Storage
+    if (message.contentProvider?.type === 'line') {
+      const imageUrl = await fetchAndStoreLineContent(message.id, 'image');
+      if (imageUrl) {
+        metadata.imageUrl = imageUrl;
+      }
+    } else if (message.contentProvider?.originalContentUrl) {
+      metadata.imageUrl = message.contentProvider.originalContentUrl;
+    }
   } else if (message.type === 'video') {
     messageContent = '[วิดีโอ]';
+    if (message.contentProvider?.previewImageUrl) {
+      metadata.previewUrl = message.contentProvider.previewImageUrl;
+    }
   } else if (message.type === 'audio') {
     messageContent = '[เสียง]';
   } else if (message.type === 'file') {
     messageContent = `[ไฟล์: ${message.fileName || 'unknown'}]`;
+    metadata.fileName = message.fileName;
+    metadata.fileSize = message.fileSize;
   } else if (message.type === 'sticker') {
     messageContent = '[สติกเกอร์]';
+    metadata.stickerId = message.stickerId;
+    metadata.packageId = message.packageId;
+    metadata.stickerResourceType = message.stickerResourceType;
   } else if (message.type === 'location') {
-    messageContent = '[ตำแหน่ง]';
+    messageContent = message.title || message.address || '[ตำแหน่ง]';
+    metadata.latitude = message.latitude;
+    metadata.longitude = message.longitude;
+    metadata.address = message.address;
   } else {
     messageContent = `[${message.type}]`;
   }
 
-  // Save message to database
+  // Save message to database with sender info
   const { error } = await supabaseAdmin
     .from('line_messages')
     .insert({
@@ -191,7 +240,10 @@ async function handleMessageEvent(contactId: string, event: LineEvent, isGroup: 
       direction: 'incoming',
       message_type: messageType,
       content: messageContent,
-      raw_message: message,
+      raw_message: { ...message, ...metadata },
+      sender_user_id: senderUserId || null,
+      sender_name: senderName,
+      sender_picture_url: senderPictureUrl,
       received_at: new Date(event.timestamp).toISOString(),
       created_at: new Date().toISOString()
     });
@@ -372,6 +424,67 @@ async function getGroupInfo(groupId: string, isGroup: boolean) {
   }
 }
 
+// Fetch content from LINE and store in Supabase Storage
+async function fetchAndStoreLineContent(messageId: string, type: 'image' | 'video' | 'audio' | 'file'): Promise<string | null> {
+  const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+
+  if (!LINE_CHANNEL_ACCESS_TOKEN) {
+    console.error('LINE_CHANNEL_ACCESS_TOKEN not set');
+    return null;
+  }
+
+  try {
+    // Fetch content from LINE
+    const response = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
+      headers: {
+        'Authorization': `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`
+      }
+    });
+
+    if (!response.ok) {
+      console.error('Failed to fetch LINE content:', response.status);
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    const buffer = await response.arrayBuffer();
+
+    // Determine file extension
+    let ext = 'bin';
+    if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = 'jpg';
+    else if (contentType.includes('png')) ext = 'png';
+    else if (contentType.includes('gif')) ext = 'gif';
+    else if (contentType.includes('webp')) ext = 'webp';
+    else if (contentType.includes('mp4')) ext = 'mp4';
+    else if (contentType.includes('m4a')) ext = 'm4a';
+
+    const fileName = `line-${type}/${messageId}.${ext}`;
+
+    // Upload to Supabase Storage
+    const { error } = await supabaseAdmin.storage
+      .from('chat-media')
+      .upload(fileName, buffer, {
+        contentType,
+        upsert: true
+      });
+
+    if (error) {
+      console.error('Failed to upload to storage:', error);
+      return null;
+    }
+
+    // Get public URL
+    const { data: urlData } = supabaseAdmin.storage
+      .from('chat-media')
+      .getPublicUrl(fileName);
+
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('Error fetching LINE content:', error);
+    return null;
+  }
+}
+
 // Get LINE user profile
 async function getLineProfile(lineUserId: string) {
   const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -396,6 +509,39 @@ async function getLineProfile(lineUserId: string) {
     return await response.json();
   } catch (error) {
     console.error('Error fetching LINE profile:', error);
+    return null;
+  }
+}
+
+// Get group/room member profile
+async function getGroupMemberProfile(groupId: string, userId: string, isGroup: boolean) {
+  const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+
+  if (!LINE_CHANNEL_ACCESS_TOKEN) {
+    console.error('LINE_CHANNEL_ACCESS_TOKEN not set');
+    return null;
+  }
+
+  try {
+    const endpoint = isGroup
+      ? `https://api.line.me/v2/bot/group/${groupId}/member/${userId}`
+      : `https://api.line.me/v2/bot/room/${groupId}/member/${userId}`;
+
+    const response = await fetch(endpoint, {
+      headers: {
+        'Authorization': `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`
+      }
+    });
+
+    if (!response.ok) {
+      console.error('Failed to get group member profile:', response.status);
+      // Fallback to regular profile
+      return await getLineProfile(userId);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching group member profile:', error);
     return null;
   }
 }

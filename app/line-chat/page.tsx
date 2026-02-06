@@ -15,9 +15,10 @@ import {
   Link as LinkIcon,
   X,
   Check,
-  Clock,
   Phone,
-  ShoppingCart
+  ShoppingCart,
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -35,6 +36,7 @@ interface LineContact {
   };
   unread_count: number;
   last_message_at?: string;
+  last_message?: string; // Preview of last message
 }
 
 interface LineMessage {
@@ -48,7 +50,28 @@ interface LineMessage {
     id: string;
     name: string;
   };
+  // Sender info (for incoming messages)
+  sender_user_id?: string;
+  sender_name?: string;
+  sender_picture_url?: string;
+  raw_message?: {
+    stickerId?: string;
+    packageId?: string;
+    stickerResourceType?: string;
+    latitude?: number;
+    longitude?: number;
+    address?: string;
+    lineMessageId?: string; // For LINE content proxy
+    imageUrl?: string; // Direct URL or from storage
+    contentProvider?: {
+      originalContentUrl?: string;
+      previewImageUrl?: string;
+    };
+  };
   created_at: string;
+  // Local status for optimistic updates
+  _status?: 'sending' | 'sent' | 'failed';
+  _tempId?: string; // Temporary ID for optimistic messages
 }
 
 interface Customer {
@@ -62,6 +85,7 @@ export default function LineChatPage() {
   const router = useRouter();
   const { userProfile, loading: authLoading } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Contacts list state
   const [contacts, setContacts] = useState<LineContact[]>([]);
@@ -76,7 +100,8 @@ export default function LineChatPage() {
 
   // Message input
   const [newMessage, setNewMessage] = useState('');
-  const [sending, setSending] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Link customer modal
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -95,6 +120,8 @@ export default function LineChatPage() {
   useEffect(() => {
     if (selectedContact) {
       fetchMessages(selectedContact.id);
+      // Focus input when contact selected
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [selectedContact]);
 
@@ -102,6 +129,7 @@ export default function LineChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
 
   // Supabase Realtime subscription for new messages
   useEffect(() => {
@@ -120,7 +148,21 @@ export default function LineChatPage() {
 
           // If this message is for the selected contact, add it to messages
           if (selectedContact && newMsg.line_contact_id === selectedContact.id) {
-            setMessages(prev => [...prev, newMsg]);
+            setMessages(prev => {
+              // Check if message already exists (by real id)
+              const existsById = prev.some(m => m.id === newMsg.id);
+              if (existsById) return prev;
+
+              // For outgoing messages: skip if we already have it (handled by sendMessage)
+              // Match by content to detect our own optimistic messages
+              if (newMsg.direction === 'outgoing') {
+                const alreadyHave = prev.some(m => m.content === newMsg.content && m.direction === 'outgoing');
+                if (alreadyHave) return prev;
+              }
+
+              // New incoming message - just add it
+              return [...prev, newMsg];
+            });
           }
 
           // Refresh contacts to update unread counts and last_message_at
@@ -178,14 +220,20 @@ export default function LineChatPage() {
     }
   };
 
-  const fetchMessages = async (contactId: string) => {
+  const fetchMessages = async (contactId: string, loadMore = false) => {
     try {
-      setLoadingMessages(true);
+      if (loadMore) {
+        setLoadingMore(true);
+      } else {
+        setLoadingMessages(true);
+      }
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session) return;
 
-      const response = await fetch(`/api/line/messages?contact_id=${contactId}`, {
+      const offset = loadMore ? messages.length : 0;
+      const limit = 50;
+      const response = await fetch(`/api/line/messages?contact_id=${contactId}&limit=${limit}&offset=${offset}`, {
         headers: {
           'Authorization': `Bearer ${session.access_token}`
         }
@@ -194,59 +242,104 @@ export default function LineChatPage() {
       if (!response.ok) throw new Error('Failed to fetch messages');
 
       const result = await response.json();
-      setMessages(result.messages || []);
+      const newMessages = result.messages || [];
+
+      if (loadMore) {
+        // Prepend older messages
+        setMessages(prev => [...newMessages, ...prev]);
+      } else {
+        setMessages(newMessages);
+      }
+
+      // Check if there are more messages
+      setHasMoreMessages(newMessages.length === limit);
 
       // Update contact's unread count locally
-      setContacts(prev => prev.map(c =>
-        c.id === contactId ? { ...c, unread_count: 0 } : c
-      ));
+      if (!loadMore) {
+        setContacts(prev => prev.map(c =>
+          c.id === contactId ? { ...c, unread_count: 0 } : c
+        ));
+      }
     } catch (error) {
       console.error('Error fetching messages:', error);
     } finally {
       setLoadingMessages(false);
+      setLoadingMore(false);
     }
   };
 
-  const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedContact || sending) return;
+  const sendMessage = (retryMessage?: LineMessage) => {
+    const messageText = retryMessage?.content || newMessage.trim();
+    if (!messageText || !selectedContact) return;
 
-    try {
-      setSending(true);
-      const { data: { session } } = await supabase.auth.getSession();
+    // Generate temp ID for optimistic update
+    const tempId = retryMessage?._tempId || `temp-${Date.now()}`;
 
-      if (!session) return;
-
-      const response = await fetch('/api/line/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({
-          contact_id: selectedContact.id,
-          message: newMessage.trim()
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to send message');
-      }
-
-      const result = await response.json();
-
-      // Add message to list
-      if (result.message) {
-        setMessages(prev => [...prev, result.message]);
-      }
-
+    // Optimistic update - add message immediately with 'sending' status
+    if (!retryMessage) {
+      const optimisticMessage: LineMessage = {
+        id: tempId,
+        _tempId: tempId,
+        line_contact_id: selectedContact.id,
+        direction: 'outgoing',
+        message_type: 'text',
+        content: messageText,
+        created_at: new Date().toISOString(),
+        _status: 'sending'
+      };
+      setMessages(prev => [...prev, optimisticMessage]);
       setNewMessage('');
-    } catch (error) {
-      console.error('Error sending message:', error);
-      alert('ส่งข้อความไม่สำเร็จ กรุณาลองใหม่');
-    } finally {
-      setSending(false);
+      inputRef.current?.focus();
+    } else {
+      // Update retry message status back to sending
+      setMessages(prev => prev.map(m =>
+        m._tempId === tempId ? { ...m, _status: 'sending' as const } : m
+      ));
     }
+
+    // Send async - don't await, let user continue typing
+    const contactId = selectedContact.id;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session) throw new Error('No session');
+
+        const response = await fetch('/api/line/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({
+            contact_id: contactId,
+            message: messageText
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to send message');
+        }
+
+        const result = await response.json();
+
+        // Update optimistic message with real data
+        if (result.message) {
+          setMessages(prev => prev.map(m =>
+            m._tempId === tempId
+              ? { ...result.message, _status: 'sent' as const }
+              : m
+          ));
+        }
+      } catch (error) {
+        console.error('Error sending message:', error);
+        // Mark message as failed
+        setMessages(prev => prev.map(m =>
+          m._tempId === tempId ? { ...m, _status: 'failed' as const } : m
+        ));
+      }
+    })();
   };
 
   const fetchCustomers = async (search: string) => {
@@ -446,13 +539,18 @@ export default function LineChatPage() {
                         {formatLastMessage(contact.last_message_at)}
                       </span>
                     </div>
-                    {contact.customer ? (
+                    {/* Last message preview */}
+                    {contact.last_message ? (
+                      <div className="text-xs text-gray-500 truncate">
+                        {contact.last_message}
+                      </div>
+                    ) : contact.customer ? (
                       <div className="text-xs text-[#06C755] truncate flex items-center gap-1">
                         <LinkIcon className="w-3 h-3" />
                         {contact.customer.customer_code} - {contact.customer.name}
                       </div>
                     ) : (
-                      <div className="text-xs text-gray-400">ยังไม่ได้เชื่อมลูกค้า</div>
+                      <div className="text-xs text-gray-400">ยังไม่มีข้อความ</div>
                     )}
                   </div>
                 </button>
@@ -537,29 +635,144 @@ export default function LineChatPage() {
                     <p>ยังไม่มีข้อความ</p>
                   </div>
                 ) : (
-                  messages.map((msg) => (
+                  <>
+                    {/* Load More Button */}
+                    {hasMoreMessages && (
+                      <div className="flex justify-center">
+                        <button
+                          onClick={() => fetchMessages(selectedContact!.id, true)}
+                          disabled={loadingMore}
+                          className="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
+                        >
+                          {loadingMore ? (
+                            <span className="flex items-center gap-2">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              กำลังโหลด...
+                            </span>
+                          ) : (
+                            'โหลดข้อความเก่า'
+                          )}
+                        </button>
+                      </div>
+                    )}
+                    {messages.map((msg) => (
                     <div
                       key={msg.id}
-                      className={`flex ${msg.direction === 'outgoing' ? 'justify-end' : 'justify-start'}`}
+                      className={`flex ${msg.direction === 'outgoing' ? 'justify-end' : 'justify-start'} gap-2`}
                     >
-                      <div
-                        className={`max-w-[70%] rounded-2xl px-4 py-2 ${msg.direction === 'outgoing'
-                            ? 'bg-[#06C755] text-white rounded-br-sm'
-                            : 'bg-white text-gray-900 rounded-bl-sm shadow-sm'
-                          }`}
-                      >
-                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                        <div className={`flex items-center gap-1 mt-1 text-xs ${msg.direction === 'outgoing' ? 'text-white/70 justify-end' : 'text-gray-400'
-                          }`}>
-                          <Clock className="w-3 h-3" />
-                          {formatTime(msg.created_at)}
-                          {msg.direction === 'outgoing' && msg.sent_by_user && (
-                            <span className="ml-1">• {msg.sent_by_user.name}</span>
+                      {/* Sender Avatar (for incoming messages) */}
+                      {msg.direction === 'incoming' && (
+                        <div className="flex-shrink-0 self-end">
+                          {msg.sender_picture_url ? (
+                            <Image
+                              src={msg.sender_picture_url}
+                              alt={msg.sender_name || 'User'}
+                              width={32}
+                              height={32}
+                              className="w-8 h-8 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
+                              <User className="w-4 h-4 text-gray-500" />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex flex-col">
+                        {/* Sender name (for incoming messages) */}
+                        {msg.direction === 'incoming' && msg.sender_name && (
+                          <span className="text-xs text-gray-500 mb-0.5 ml-1">{msg.sender_name}</span>
+                        )}
+
+                        <div className="flex items-end gap-1.5">
+                          {/* Status + Timestamp (before bubble for outgoing) */}
+                          {msg.direction === 'outgoing' && (
+                            <div className="flex flex-col items-end self-end mb-0.5 text-[10px] text-gray-400">
+                              {msg.sent_by_user && <span>{msg.sent_by_user.name}</span>}
+                              <div className="flex items-center gap-1">
+                                {msg._status === 'failed' && (
+                                  <button
+                                    onClick={() => { sendMessage(msg); }}
+                                    className="flex items-center gap-0.5 text-red-500 hover:text-red-600"
+                                    title="ส่งไม่สำเร็จ กดเพื่อลองใหม่"
+                                  >
+                                    <AlertCircle className="w-3 h-3" />
+                                    <RotateCcw className="w-2.5 h-2.5" />
+                                  </button>
+                                )}
+                                {msg._status === 'sending' && (
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin text-gray-400" />
+                                )}
+                                {msg._status === 'sent' && (
+                                  <Check className="w-2.5 h-2.5 text-[#06C755]" />
+                                )}
+                                <span>{formatTime(msg.created_at)}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          <div
+                            className={`rounded-2xl max-w-[min(70vw,400px)] ${msg.message_type === 'sticker' ? 'bg-transparent' : msg.direction === 'outgoing'
+                              ? msg._status === 'failed'
+                                ? 'bg-red-400 text-white rounded-br-sm px-4 py-2'
+                                : msg._status === 'sending'
+                                  ? 'bg-[#06C755]/70 text-white rounded-br-sm px-4 py-2'
+                                  : 'bg-[#06C755] text-white rounded-br-sm px-4 py-2'
+                              : 'bg-white text-gray-900 rounded-bl-sm shadow-sm px-4 py-2'
+                            }`}
+                          >
+                            {/* Sticker */}
+                            {msg.message_type === 'sticker' && msg.raw_message?.stickerId ? (
+                              <img
+                                src={`https://stickershop.line-scdn.net/stickershop/v1/sticker/${msg.raw_message.stickerId}/iPhone/sticker.png`}
+                                alt="sticker"
+                                className="w-24 h-24 object-contain"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = `https://stickershop.line-scdn.net/stickershop/v1/sticker/${msg.raw_message?.stickerId}/iPhone/sticker@2x.png`;
+                                }}
+                              />
+                            ) : msg.message_type === 'image' && msg.raw_message?.imageUrl ? (
+                              /* Image from storage */
+                              <img
+                                src={msg.raw_message.imageUrl}
+                                alt="image"
+                                className="max-w-full max-h-64 rounded-lg cursor-pointer"
+                                onClick={(e) => window.open((e.target as HTMLImageElement).src, '_blank')}
+                              />
+                            ) : msg.message_type === 'location' && msg.raw_message?.latitude && msg.raw_message?.longitude ? (
+                              /* Location */
+                              <a
+                                href={`https://www.google.com/maps?q=${msg.raw_message.latitude},${msg.raw_message.longitude}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xl">📍</span>
+                                  <span className="underline">{msg.content}</span>
+                                </div>
+                                {msg.raw_message.address && (
+                                  <p className="text-xs opacity-70 mt-1">{msg.raw_message.address}</p>
+                                )}
+                              </a>
+                            ) : (
+                              /* Text and other messages */
+                              <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                            )}
+                          </div>
+
+                          {/* Timestamp (after bubble for incoming) */}
+                          {msg.direction === 'incoming' && (
+                            <span className="text-[10px] text-gray-400 self-end mb-0.5 whitespace-nowrap">
+                              {formatTime(msg.created_at)}
+                            </span>
                           )}
                         </div>
                       </div>
                     </div>
-                  ))
+                    ))}
+                  </>
                 )}
                 <div ref={messagesEndRef} />
               </div>
@@ -568,6 +781,7 @@ export default function LineChatPage() {
               <div className="p-4 border-t border-gray-200 bg-white">
                 <div className="flex items-center gap-2">
                   <input
+                    ref={inputRef}
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
@@ -579,18 +793,13 @@ export default function LineChatPage() {
                     }}
                     placeholder="พิมพ์ข้อความ..."
                     className="flex-1 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-[#06C755]"
-                    disabled={sending}
                   />
                   <button
-                    onClick={sendMessage}
-                    disabled={!newMessage.trim() || sending}
+                    onClick={() => { sendMessage(); }}
+                    disabled={!newMessage.trim()}
                     className="p-2 bg-[#06C755] text-white rounded-full hover:bg-[#05b04c] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    {sending ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <Send className="w-5 h-5" />
-                    )}
+                    <Send className="w-5 h-5" />
                   </button>
                 </div>
               </div>

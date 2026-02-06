@@ -79,11 +79,43 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get last message for each contact
+    const contactIds = (contacts || []).map(c => c.id);
+
+    // Get latest message per contact
+    const { data: lastMessages } = await supabaseAdmin
+      .from('line_messages')
+      .select('line_contact_id, content, message_type')
+      .in('line_contact_id', contactIds)
+      .order('created_at', { ascending: false });
+
+    // Build a map of contact_id -> last message
+    const lastMessageMap = new Map<string, string>();
+    (lastMessages || []).forEach(msg => {
+      if (!lastMessageMap.has(msg.line_contact_id)) {
+        // Format last message preview
+        let preview = msg.content;
+        if (msg.message_type === 'sticker') preview = '🎭 สติกเกอร์';
+        else if (msg.message_type === 'image') preview = '🖼️ รูปภาพ';
+        else if (msg.message_type === 'video') preview = '🎬 วิดีโอ';
+        else if (msg.message_type === 'audio') preview = '🎵 เสียง';
+        else if (msg.message_type === 'location') preview = '📍 ตำแหน่ง';
+        else if (msg.message_type === 'file') preview = '📎 ไฟล์';
+        lastMessageMap.set(msg.line_contact_id, preview);
+      }
+    });
+
+    // Add last_message to contacts
+    const contactsWithLastMessage = (contacts || []).map(contact => ({
+      ...contact,
+      last_message: lastMessageMap.get(contact.id) || null
+    }));
+
     // Get unread counts summary
     const totalUnread = (contacts || []).reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
     return NextResponse.json({
-      contacts: contacts || [],
+      contacts: contactsWithLastMessage,
       summary: {
         total: contacts?.length || 0,
         totalUnread
