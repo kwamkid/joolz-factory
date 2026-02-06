@@ -71,3 +71,7 @@ COMMENT ON TABLE line_contacts IS 'LINE OA contacts - users who interact with th
 COMMENT ON TABLE line_messages IS 'LINE messages - both incoming and outgoing';
 COMMENT ON COLUMN line_contacts.customer_id IS 'Link to customer in our CRM system';
 COMMENT ON COLUMN line_messages.direction IS 'incoming = from customer, outgoing = from us';
+
+-- Enable Realtime for these tables
+ALTER PUBLICATION supabase_realtime ADD TABLE line_contacts;
+ALTER PUBLICATION supabase_realtime ADD TABLE line_messages;

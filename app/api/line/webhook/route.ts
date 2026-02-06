@@ -71,13 +71,18 @@ export async function POST(request: NextRequest) {
     const body = await request.text();
     const signature = request.headers.get('x-line-signature') || '';
 
-    // Verify signature in production
-    if (process.env.NODE_ENV === 'production' && !verifySignature(body, signature)) {
+    const webhookBody: LineWebhookBody = JSON.parse(body);
+
+    // LINE verification request sends empty events array - just return 200
+    if (webhookBody.events.length === 0) {
+      return NextResponse.json({ success: true });
+    }
+
+    // Verify signature for actual events
+    if (!verifySignature(body, signature)) {
       console.error('Invalid LINE signature');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
-
-    const webhookBody: LineWebhookBody = JSON.parse(body);
 
     // Process each event
     for (const event of webhookBody.events) {

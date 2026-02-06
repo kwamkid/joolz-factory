@@ -103,16 +103,52 @@ export default function LineChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Poll for new messages every 5 seconds
+  // Supabase Realtime subscription for new messages
   useEffect(() => {
-    if (!selectedContact) return;
+    // Subscribe to new messages
+    const messagesChannel = supabase
+      .channel('line_messages_realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'line_messages'
+        },
+        (payload) => {
+          const newMsg = payload.new as LineMessage;
 
-    const interval = setInterval(() => {
-      fetchMessages(selectedContact.id);
-      fetchContacts(); // Also refresh contacts for unread counts
-    }, 5000);
+          // If this message is for the selected contact, add it to messages
+          if (selectedContact && newMsg.line_contact_id === selectedContact.id) {
+            setMessages(prev => [...prev, newMsg]);
+          }
 
-    return () => clearInterval(interval);
+          // Refresh contacts to update unread counts and last_message_at
+          fetchContacts();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to contact updates (unread count, last_message_at)
+    const contactsChannel = supabase
+      .channel('line_contacts_realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'line_contacts'
+        },
+        () => {
+          fetchContacts();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(messagesChannel);
+      supabase.removeChannel(contactsChannel);
+    };
   }, [selectedContact]);
 
   const fetchContacts = async () => {
