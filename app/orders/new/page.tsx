@@ -72,6 +72,7 @@ interface BranchOrder {
   shipping_address_id: string;
   address_name: string;
   delivery_notes: string;
+  shipping_fee: number;
   products: BranchProduct[];
 }
 
@@ -243,6 +244,7 @@ export default function NewOrderPage() {
             shipping_address_id: sortedAddresses[0].id,
             address_name: sortedAddresses[0].address_name,
             delivery_notes: '',
+            shipping_fee: 0,
             products: []
           };
           setBranchOrders([firstBranch]);
@@ -293,6 +295,7 @@ export default function NewOrderPage() {
       shipping_address_id: availableAddress.id,
       address_name: availableAddress.address_name,
       delivery_notes: '',
+      shipping_fee: 0,
       products: []
     };
 
@@ -415,6 +418,12 @@ export default function NewOrderPage() {
     setBranchOrders(newBranchOrders);
   };
 
+  const handleUpdateBranchShippingFee = (branchIndex: number, fee: number) => {
+    const newBranchOrders = [...branchOrders];
+    newBranchOrders[branchIndex].shipping_fee = Math.max(0, fee);
+    setBranchOrders(newBranchOrders);
+  };
+
   // Calculate totals
   const calculateProductSubtotal = (product: BranchProduct) => product.quantity * product.unit_price;
   const calculateProductDiscount = (product: BranchProduct) => calculateProductSubtotal(product) * (product.discount_percent / 100);
@@ -422,7 +431,8 @@ export default function NewOrderPage() {
   const calculateBranchTotal = (branch: BranchOrder) => branch.products.reduce((sum, p) => sum + calculateProductTotal(p), 0);
 
   const itemsTotal = branchOrders.reduce((sum, branch) => sum + calculateBranchTotal(branch), 0);
-  const totalWithVAT = itemsTotal - orderDiscount;
+  const totalShippingFee = branchOrders.reduce((sum, branch) => sum + (branch.shipping_fee || 0), 0);
+  const totalWithVAT = itemsTotal - orderDiscount + totalShippingFee;
   const subtotal = Math.round((totalWithVAT / 1.07) * 100) / 100;
   const vat = totalWithVAT - subtotal;
   const total = totalWithVAT;
@@ -460,7 +470,8 @@ export default function NewOrderPage() {
           shipments: [{
             shipping_address_id: branch.shipping_address_id,
             quantity: product.quantity,
-            delivery_notes: branch.delivery_notes || undefined
+            delivery_notes: branch.delivery_notes || undefined,
+            shipping_fee: branch.shipping_fee || 0
           }]
         }))
       );
@@ -708,6 +719,18 @@ export default function NewOrderPage() {
                         ))}
                       </select>
                     </div>
+                    <div className="relative sm:w-32">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">฿</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={branch.shipping_fee || ''}
+                        onChange={(e) => handleUpdateBranchShippingFee(branchIndex, parseFloat(e.target.value) || 0)}
+                        placeholder="ค่าส่ง"
+                        className="w-full pl-7 pr-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm"
+                      />
+                    </div>
                     <input
                       type="text"
                       value={branch.delivery_notes}
@@ -889,9 +912,14 @@ export default function NewOrderPage() {
                 {/* Branch Total */}
                 {branch.products.length > 0 && (
                   <div className="px-4 py-3 bg-gray-50 border-t flex justify-between items-center">
-                    <span className="text-sm font-medium text-gray-600">ยอดรวมสาขา {branch.address_name}</span>
+                    <span className="text-sm font-medium text-gray-600">
+                      ยอดรวมสาขา {branch.address_name}
+                      {branch.shipping_fee > 0 && (
+                        <span className="text-gray-400 ml-2">(รวมค่าส่ง ฿{branch.shipping_fee.toLocaleString('th-TH', { minimumFractionDigits: 2 })})</span>
+                      )}
+                    </span>
                     <span className="text-lg font-bold text-[#E9B308]">
-                      ฿{calculateBranchTotal(branch).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                      ฿{(calculateBranchTotal(branch) + (branch.shipping_fee || 0)).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                 )}
@@ -933,9 +961,15 @@ export default function NewOrderPage() {
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">สรุปคำสั่งซื้อ</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between text-gray-600">
-                    <span>ยอดรวม (รวม VAT)</span>
+                    <span>ยอดรวมสินค้า (รวม VAT)</span>
                     <span>฿{itemsTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                   </div>
+                  {totalShippingFee > 0 && (
+                    <div className="flex justify-between text-gray-600">
+                      <span>ค่าจัดส่ง</span>
+                      <span>฿{totalShippingFee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">ส่วนลดรวม</span>
                     <input

@@ -17,6 +17,7 @@ interface OrderItemInput {
     shipping_address_id: string;
     quantity: number;
     delivery_notes?: string;
+    shipping_fee?: number;
   }[];
 }
 
@@ -122,9 +123,20 @@ export async function POST(request: NextRequest) {
       };
     });
 
+    // Calculate total shipping fee (deduplicated by address)
+    const shippingFeeByAddress = new Map<string, number>();
+    orderData.items.forEach(item => {
+      item.shipments.forEach(s => {
+        if (s.shipping_fee && !shippingFeeByAddress.has(s.shipping_address_id)) {
+          shippingFeeByAddress.set(s.shipping_address_id, s.shipping_fee);
+        }
+      });
+    });
+    const totalShippingFee = Array.from(shippingFeeByAddress.values()).reduce((sum, f) => sum + f, 0);
+
     const discountAmount = orderData.discount_amount || 0;
     const vatAmount = (subtotal - discountAmount) * 0.07; // 7% VAT
-    const totalAmount = subtotal - discountAmount + vatAmount;
+    const totalAmount = subtotal - discountAmount + vatAmount + totalShippingFee;
 
     // Generate order number
     const { data: orderNumber, error: codeError } = await supabaseAdmin
@@ -148,6 +160,7 @@ export async function POST(request: NextRequest) {
         subtotal,
         vat_amount: vatAmount,
         discount_amount: discountAmount,
+        shipping_fee: totalShippingFee,
         total_amount: totalAmount,
         payment_method: orderData.payment_method || null,
         payment_status: 'pending',
@@ -209,6 +222,7 @@ export async function POST(request: NextRequest) {
         order_item_id: orderItem.id,
         shipping_address_id: shipment.shipping_address_id,
         quantity: shipment.quantity,
+        shipping_fee: shipment.shipping_fee || 0,
         delivery_status: 'pending',
         delivery_notes: shipment.delivery_notes || null,
         created_at: new Date().toISOString(),
@@ -340,12 +354,16 @@ export async function GET(request: NextRequest) {
     // Otherwise, fetch orders list
     const customerId = searchParams.get('customer_id');
     const status = searchParams.get('status');
+    const paymentStatus = searchParams.get('payment_status');
     const search = searchParams.get('search');
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = parseInt(searchParams.get('limit') || '50', 10);
+    const offset = (page - 1) * limit;
 
     // Use the order_summary view for efficient querying
     let query = supabaseAdmin
       .from('order_summary')
-      .select('*');
+      .select('*', { count: 'exact' });
 
     // Apply filters
     if (customerId) {
@@ -356,11 +374,18 @@ export async function GET(request: NextRequest) {
       query = query.eq('order_status', status);
     }
 
+    if (paymentStatus && paymentStatus !== 'all') {
+      query = query.eq('payment_status', paymentStatus);
+    }
+
     if (search) {
       query = query.or(`order_number.ilike.%${search}%,customer_name.ilike.%${search}%`);
     }
 
-    const { data: orders, error } = await query.order('order_date', { ascending: false });
+    // Add pagination and ordering
+    const { data: orders, error, count } = await query
+      .order('order_date', { ascending: false })
+      .range(offset, offset + limit - 1);
 
     if (error) {
       return NextResponse.json(
@@ -371,50 +396,41 @@ export async function GET(request: NextRequest) {
 
     // Early return if no orders
     if (!orders || orders.length === 0) {
-      return NextResponse.json({ orders: [] });
+      return NextResponse.json({
+        orders: [],
+        pagination: { page, limit, total: 0, totalPages: 0 }
+      });
     }
 
-    // Get all order IDs for batch fetching
+    // Get all order IDs for batch fetching branch names
     const orderIds = orders.map(o => o.id);
 
-    // Batch fetch: Get all order items for all orders in one query
-    const { data: allOrderItems } = await supabaseAdmin
+    // Single optimized query: Get branch names directly via JOIN
+    // This replaces 2 separate queries with 1 query
+    const { data: branchData } = await supabaseAdmin
       .from('order_items')
-      .select('id, order_id')
+      .select(`
+        order_id,
+        order_shipments!inner (
+          shipping_address:shipping_addresses!inner (
+            address_name
+          )
+        )
+      `)
       .in('order_id', orderIds);
 
-    // Get all order item IDs
-    const allOrderItemIds = (allOrderItems || []).map(item => item.id);
-
-    // Batch fetch: Get all shipments with shipping addresses in one query
-    const { data: allShipments } = allOrderItemIds.length > 0
-      ? await supabaseAdmin
-          .from('order_shipments')
-          .select(`
-            order_item_id,
-            shipping_address:shipping_addresses (
-              address_name
-            )
-          `)
-          .in('order_item_id', allOrderItemIds)
-      : { data: [] };
-
-    // Create a map: order_item_id -> order_id
-    const itemToOrderMap = new Map<string, string>();
-    (allOrderItems || []).forEach(item => {
-      itemToOrderMap.set(item.id, item.order_id);
-    });
-
-    // Create a map: order_id -> Set of branch names
+    // Build branch names map from joined data
     const orderBranchesMap = new Map<string, Set<string>>();
-    (allShipments || []).forEach((shipment: any) => {
-      const orderId = itemToOrderMap.get(shipment.order_item_id);
-      if (orderId && shipment.shipping_address?.address_name) {
-        if (!orderBranchesMap.has(orderId)) {
-          orderBranchesMap.set(orderId, new Set());
-        }
-        orderBranchesMap.get(orderId)!.add(shipment.shipping_address.address_name);
+    (branchData || []).forEach((item: any) => {
+      const orderId = item.order_id;
+      if (!orderBranchesMap.has(orderId)) {
+        orderBranchesMap.set(orderId, new Set());
       }
+      (item.order_shipments || []).forEach((shipment: any) => {
+        if (shipment.shipping_address?.address_name) {
+          orderBranchesMap.get(orderId)!.add(shipment.shipping_address.address_name);
+        }
+      });
     });
 
     // Map orders with their branch names
@@ -423,7 +439,15 @@ export async function GET(request: NextRequest) {
       branch_names: Array.from(orderBranchesMap.get(order.id) || [])
     }));
 
-    return NextResponse.json({ orders: ordersWithBranches });
+    return NextResponse.json({
+      orders: ordersWithBranches,
+      pagination: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit)
+      }
+    });
   } catch (error) {
     return NextResponse.json(
       { error: 'Internal server error' },
@@ -521,9 +545,20 @@ export async function PUT(request: NextRequest) {
         };
       });
 
+      // Calculate total shipping fee (deduplicated by address)
+      const shippingFeeByAddress = new Map<string, number>();
+      items.forEach((item: any) => {
+        item.shipments.forEach((s: any) => {
+          if (s.shipping_fee && !shippingFeeByAddress.has(s.shipping_address_id)) {
+            shippingFeeByAddress.set(s.shipping_address_id, s.shipping_fee);
+          }
+        });
+      });
+      const totalShippingFee = Array.from(shippingFeeByAddress.values()).reduce((sum, f) => sum + f, 0);
+
       const orderDiscountAmount = discount_amount || 0;
       const vatAmount = (subtotal - orderDiscountAmount) * 0.07; // 7% VAT
-      const totalAmount = subtotal - orderDiscountAmount + vatAmount;
+      const totalAmount = subtotal - orderDiscountAmount + vatAmount + totalShippingFee;
 
       // Delete existing order items (cascades to shipments via foreign key)
       const { error: deleteItemsError } = await supabaseAdmin
@@ -547,6 +582,7 @@ export async function PUT(request: NextRequest) {
           subtotal,
           vat_amount: vatAmount,
           discount_amount: orderDiscountAmount,
+          shipping_fee: totalShippingFee,
           total_amount: totalAmount,
           payment_method: payment_method || null,
           notes: notes || null,
@@ -600,6 +636,7 @@ export async function PUT(request: NextRequest) {
           order_item_id: orderItem.id,
           shipping_address_id: shipment.shipping_address_id,
           quantity: shipment.quantity,
+          shipping_fee: shipment.shipping_fee || 0,
           delivery_status: 'pending',
           delivery_notes: shipment.delivery_notes || null,
           created_at: new Date().toISOString(),
@@ -635,6 +672,7 @@ export async function PUT(request: NextRequest) {
       if (discount_amount !== undefined) updateData.discount_amount = discount_amount || 0;
       if (notes !== undefined) updateData.notes = notes || null;
       if (internal_notes !== undefined) updateData.internal_notes = internal_notes || null;
+      if (body.shipping_fee !== undefined) updateData.shipping_fee = body.shipping_fee || 0;
       if (body.order_status !== undefined) updateData.order_status = body.order_status;
       if (body.payment_status !== undefined) updateData.payment_status = body.payment_status;
 

@@ -28,7 +28,10 @@ import {
   ClipboardList,
   Boxes,
   Package2,
-  Wine
+  Wine,
+  Truck,
+  UserCheck,
+  MessageCircle
 } from 'lucide-react';
 
 // Menu item interface
@@ -59,9 +62,27 @@ const menuSections: MenuSection[] = [
         roles: ['admin', 'manager', 'sales']
       },
       {
+        label: 'การจัดส่ง',
+        href: '/reports/delivery-summary',
+        icon: <Truck className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'operation', 'sales']
+      },
+      {
         label: 'ลูกค้า',
         href: '/customers',
         icon: <UserCircle className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      },
+      {
+        label: 'ติดตามลูกค้า',
+        href: '/crm/follow-up',
+        icon: <UserCheck className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      },
+      {
+        label: 'LINE Chat',
+        href: '/line-chat',
+        icon: <MessageCircle className="w-5 h-5" />,
         roles: ['admin', 'manager', 'sales']
       },
       {

@@ -96,6 +96,7 @@ interface Order {
   internal_notes?: string;
   vat_amount: number;
   discount_amount: number;
+  shipping_fee: number;
   customer: Customer;
   items: OrderItem[];
 }
@@ -851,6 +852,12 @@ export default function OrderDetailPage() {
                 <span>VAT 7%</span>
                 <span>฿{order.vat_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
               </div>
+              {order.shipping_fee > 0 && (
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>ค่าจัดส่ง</span>
+                  <span>฿{order.shipping_fee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
               {order.discount_amount > 0 && (
                 <div className="flex justify-between text-red-600">
                   <span>ส่วนลดรวม</span>

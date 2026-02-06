@@ -113,12 +113,31 @@ export default function OrdersPage() {
     notes: ''
   });
 
-  // Fetch orders
+  // Server-side pagination state
+  const [totalOrders, setTotalOrders] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce search term (300ms delay)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setCurrentPage(1); // Reset to page 1 when search changes
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, paymentFilter, recordsPerPage]);
+
+  // Fetch orders with server-side filtering and pagination
   useEffect(() => {
     if (!authLoading && userProfile) {
       fetchOrders();
     }
-  }, [authLoading, userProfile]);
+  }, [authLoading, userProfile, currentPage, recordsPerPage, statusFilter, paymentFilter, debouncedSearch]);
 
   const fetchOrders = async () => {
     try {
@@ -129,7 +148,15 @@ export default function OrdersPage() {
         throw new Error('No session');
       }
 
-      const response = await fetch('/api/orders', {
+      // Build query params for server-side filtering
+      const params = new URLSearchParams();
+      params.set('page', currentPage.toString());
+      params.set('limit', recordsPerPage.toString());
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (paymentFilter !== 'all') params.set('payment_status', paymentFilter);
+      if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
+
+      const response = await fetch(`/api/orders?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${session.access_token}`
         }
@@ -141,6 +168,8 @@ export default function OrdersPage() {
 
       const result = await response.json();
       setOrders(result.orders || []);
+      setTotalOrders(result.pagination?.total || 0);
+      setTotalPages(result.pagination?.totalPages || 0);
     } catch (error) {
       console.error('Error fetching orders:', error);
       setError('ไม่สามารถโหลดข้อมูลคำสั่งซื้อได้');
@@ -380,31 +409,16 @@ export default function OrdersPage() {
     }).length;
   };
 
-  // Filter orders
-  const filteredOrders = orders.filter(order => {
-    const matchesSearch =
-      order.order_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.customer_code.toLowerCase().includes(searchTerm.toLowerCase());
+  // Client-side date filter only (server doesn't support date range yet)
+  const filteredOrders = orders.filter(order => checkDateFilter(order));
 
-    const matchesStatus = statusFilter === 'all' || order.order_status === statusFilter;
-    const matchesPayment = paymentFilter === 'all' || order.payment_status === paymentFilter;
-    const matchesDate = checkDateFilter(order);
+  // Pagination is now handled by server, but we still filter by date client-side
+  const displayedOrders = filteredOrders;
 
-    return matchesSearch && matchesStatus && matchesPayment && matchesDate;
-  });
-
-  // Pagination calculations
-  const totalRecords = filteredOrders.length;
-  const totalPages = Math.ceil(totalRecords / recordsPerPage);
+  // Calculate display indices for pagination info
   const startIndex = (currentPage - 1) * recordsPerPage;
-  const endIndex = Math.min(startIndex + recordsPerPage, totalRecords);
-  const paginatedOrders = filteredOrders.slice(startIndex, endIndex);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, statusFilter, paymentFilter, deliveryDateRange]);
+  const endIndex = Math.min(startIndex + displayedOrders.length, totalOrders);
+  const totalRecords = totalOrders;
 
   // Page navigation functions
   const goToFirstPage = () => setCurrentPage(1);
@@ -661,14 +675,14 @@ export default function OrdersPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {paginatedOrders.length === 0 ? (
+                {displayedOrders.length === 0 ? (
                   <tr>
                     <td colSpan={userProfile?.role === 'admin' ? 7 : 6} className="px-6 py-12 text-center text-gray-500">
                       {searchTerm || statusFilter !== 'all' || paymentFilter !== 'all' || deliveryDateRange?.startDate ? 'ไม่พบคำสั่งซื้อที่ค้นหา' : 'ยังไม่มีคำสั่งซื้อ'}
                     </td>
                   </tr>
                 ) : (
-                  paginatedOrders.map((order) => (
+                  displayedOrders.map((order) => (
                     <tr
                       key={order.id}
                       onClick={() => router.push(`/orders/${order.id}`)}
