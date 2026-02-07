@@ -94,6 +94,13 @@ interface Customer {
   phone?: string;
 }
 
+interface DayRange {
+  minDays: number;
+  maxDays: number | null;
+  label: string;
+  color: string;
+}
+
 export default function LineChatPage() {
   const router = useRouter();
   const { userProfile, loading: authLoading } = useAuth();
@@ -150,8 +157,36 @@ export default function LineChatPage() {
   // Filter by order days range: { min: X, max: Y } means "no order between X and Y days ago"
   const [filterOrderDaysRange, setFilterOrderDaysRange] = useState<{ min: number; max: number | null } | null>(null);
 
+  // Day ranges from CRM settings
+  const [dayRanges, setDayRanges] = useState<DayRange[]>([]);
+
   // Check if any filter is active
   const hasActiveFilter = filterLinked !== 'all' || filterUnread || filterOrderDaysRange !== null;
+
+  // Fetch CRM settings (day ranges)
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const response = await fetch('/api/settings/crm', {
+          headers: { 'Authorization': `Bearer ${session.access_token}` }
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          setDayRanges(result.dayRanges || []);
+        }
+      } catch (error) {
+        console.error('Error fetching CRM settings:', error);
+      }
+    };
+
+    if (!authLoading && userProfile) {
+      fetchSettings();
+    }
+  }, [authLoading, userProfile]);
 
   // Fetch contacts
   useEffect(() => {
@@ -802,41 +837,53 @@ export default function LineChatPage() {
                 </span>
               )}
             </div>
-            {/* Quick filter - Order days (most important) */}
+            {/* Quick filter - Order days (dynamic from CRM settings) */}
             <div className="flex flex-wrap gap-1 mb-2">
-              {[
-                { range: null, label: 'ทั้งหมด', color: 'gray' },
-                { range: { min: 2, max: 3 }, label: '2-3d', color: 'yellow' },
-                { range: { min: 3, max: 5 }, label: '3-5d', color: 'amber' },
-                { range: { min: 5, max: 7 }, label: '5-7d', color: 'orange' },
-                { range: { min: 7, max: null }, label: '7d+', color: 'red' },
-              ].map(({ range, label, color }) => {
-                const isActive = range === null
-                  ? filterOrderDaysRange === null && filterLinked !== 'linked'
-                  : filterOrderDaysRange?.min === range?.min && filterOrderDaysRange?.max === range?.max;
-                const colorClasses = {
-                  gray: isActive ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
-                  yellow: isActive ? 'bg-yellow-500 text-white' : 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100',
-                  amber: isActive ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-700 hover:bg-amber-100',
-                  orange: isActive ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100',
-                  red: isActive ? 'bg-red-500 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100',
+              {/* "All" button */}
+              <button
+                onClick={() => {
+                  setFilterOrderDaysRange(null);
+                  setFilterLinked('all');
+                }}
+                className={`px-2 py-1 text-xs rounded-lg transition-colors flex items-center gap-1 ${
+                  filterOrderDaysRange === null && filterLinked !== 'linked'
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                ทั้งหมด
+              </button>
+
+              {/* Dynamic range buttons from settings */}
+              {dayRanges.map((range) => {
+                const isActive = filterOrderDaysRange?.min === range.minDays && filterOrderDaysRange?.max === range.maxDays;
+                const colorClasses: Record<string, { active: string; inactive: string }> = {
+                  green: { active: 'bg-green-500 text-white', inactive: 'bg-green-50 text-green-700 hover:bg-green-100' },
+                  emerald: { active: 'bg-emerald-500 text-white', inactive: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
+                  yellow: { active: 'bg-yellow-500 text-white', inactive: 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100' },
+                  amber: { active: 'bg-amber-500 text-white', inactive: 'bg-amber-50 text-amber-700 hover:bg-amber-100' },
+                  orange: { active: 'bg-orange-500 text-white', inactive: 'bg-orange-50 text-orange-700 hover:bg-orange-100' },
+                  red: { active: 'bg-red-500 text-white', inactive: 'bg-red-50 text-red-700 hover:bg-red-100' },
+                  pink: { active: 'bg-pink-500 text-white', inactive: 'bg-pink-50 text-pink-700 hover:bg-pink-100' },
+                  purple: { active: 'bg-purple-500 text-white', inactive: 'bg-purple-50 text-purple-700 hover:bg-purple-100' },
+                  blue: { active: 'bg-blue-500 text-white', inactive: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
+                  gray: { active: 'bg-gray-500 text-white', inactive: 'bg-gray-50 text-gray-700 hover:bg-gray-100' }
                 };
+                const colors = colorClasses[range.color] || colorClasses.gray;
+
                 return (
                   <button
-                    key={label}
+                    key={`${range.minDays}-${range.maxDays}`}
                     onClick={() => {
-                      if (range === null) {
-                        setFilterOrderDaysRange(null);
-                        setFilterLinked('all');
-                      } else {
-                        setFilterOrderDaysRange(range);
-                        setFilterLinked('linked'); // Auto select linked when filtering by order days
-                      }
+                      setFilterOrderDaysRange({ min: range.minDays, max: range.maxDays });
+                      setFilterLinked('linked'); // Auto select linked when filtering by order days
                     }}
-                    className={`px-2 py-1 text-xs rounded-lg transition-colors flex items-center gap-1 ${colorClasses[color as keyof typeof colorClasses]}`}
+                    className={`px-2 py-1 text-xs rounded-lg transition-colors flex items-center gap-1 ${
+                      isActive ? colors.active : colors.inactive
+                    }`}
                   >
-                    {range !== null && <Clock className="w-3 h-3" />}
-                    {label}
+                    <Clock className="w-3 h-3" />
+                    {range.label}
                   </button>
                 );
               })}
