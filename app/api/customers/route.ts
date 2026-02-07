@@ -183,6 +183,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search');
     const customerType = searchParams.get('type');
     const isActive = searchParams.get('active');
+    const withStats = searchParams.get('with_stats') === 'true';
 
     let query = supabaseAdmin
       .from('customers')
@@ -208,6 +209,65 @@ export async function GET(request: NextRequest) {
         { error: error.message },
         { status: 500 }
       );
+    }
+
+    // If with_stats is true, fetch additional data in batch
+    if (withStats && data && data.length > 0) {
+      const customerIds = data.map(c => c.id);
+
+      // Fetch shipping address counts in one query
+      const { data: addressCounts } = await supabaseAdmin
+        .from('shipping_addresses')
+        .select('customer_id')
+        .in('customer_id', customerIds)
+        .eq('is_active', true);
+
+      // Fetch LINE contacts with display_name (only those linked to customers)
+      const { data: lineContacts, error: lineError } = await supabaseAdmin
+        .from('line_contacts')
+        .select('customer_id, display_name, line_user_id')
+        .in('customer_id', customerIds);
+
+      if (lineError) {
+        console.error('Error fetching LINE contacts:', lineError);
+      }
+
+      // Fetch order totals in one query (sum per customer)
+      const { data: orderTotals } = await supabaseAdmin
+        .from('orders')
+        .select('customer_id, total_amount')
+        .in('customer_id', customerIds)
+        .neq('order_status', 'cancelled');
+
+      // Create lookup maps
+      const addressCountMap: Record<string, number> = {};
+      addressCounts?.forEach(addr => {
+        addressCountMap[addr.customer_id] = (addressCountMap[addr.customer_id] || 0) + 1;
+      });
+
+      const lineContactMap: Record<string, string> = {}; // customer_id -> display_name
+      lineContacts?.forEach(contact => {
+        if (contact.customer_id) {
+          lineContactMap[contact.customer_id] = contact.display_name || 'LINE';
+        }
+      });
+
+      const orderTotalMap: Record<string, number> = {};
+      orderTotals?.forEach(order => {
+        if (order.customer_id) {
+          orderTotalMap[order.customer_id] = (orderTotalMap[order.customer_id] || 0) + (order.total_amount || 0);
+        }
+      });
+
+      // Merge stats into customers
+      const customersWithStats = data.map(customer => ({
+        ...customer,
+        shipping_address_count: addressCountMap[customer.id] || 0,
+        line_display_name: lineContactMap[customer.id] || null,
+        total_order_amount: orderTotalMap[customer.id] || 0
+      }));
+
+      return NextResponse.json({ customers: customersWithStats });
     }
 
     return NextResponse.json({ customers: data });

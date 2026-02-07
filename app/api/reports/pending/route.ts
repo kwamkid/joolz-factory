@@ -29,7 +29,10 @@ async function checkAuth(request: NextRequest): Promise<boolean> {
 
 export async function GET(request: NextRequest) {
   try {
+    console.log('Pending report API called');
+
     const isAuth = await checkAuth(request);
+    console.log('Auth check result:', isAuth);
 
     if (!isAuth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -37,6 +40,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const groupBy = searchParams.get('group_by') || 'customer'; // customer, order
+    console.log('Group by:', groupBy);
 
     // ดึง orders ที่ยังไม่ชำระ (payment_status = pending) และไม่ถูกยกเลิก
     const { data: orders, error } = await supabaseAdmin
@@ -53,7 +57,6 @@ export async function GET(request: NextRequest) {
         payment_status,
         order_status,
         payment_method,
-        payment_terms,
         customer_id,
         customers (
           id,
@@ -66,6 +69,8 @@ export async function GET(request: NextRequest) {
       .eq('payment_status', 'pending')
       .neq('order_status', 'cancelled')
       .order('delivery_date', { ascending: true });
+
+    console.log('Query result - orders count:', orders?.length, 'error:', error);
 
     if (error) {
       console.error('Error fetching pending orders:', error);
@@ -131,8 +136,7 @@ export async function GET(request: NextRequest) {
           deliveryDate: order.delivery_date,
           totalAmount: order.total_amount,
           orderStatus: order.order_status,
-          paymentMethod: order.payment_method,
-          paymentTerms: order.payment_terms
+          paymentMethod: order.payment_method
         });
       });
 
@@ -150,7 +154,6 @@ export async function GET(request: NextRequest) {
         totalAmount: order.total_amount,
         orderStatus: order.order_status,
         paymentMethod: order.payment_method,
-        paymentTerms: order.payment_terms,
         customerId: order.customer_id,
         customerCode: order.customers?.customer_code || '-',
         customerName: order.customers?.name || 'ไม่ระบุ',
@@ -167,6 +170,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Pending report error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

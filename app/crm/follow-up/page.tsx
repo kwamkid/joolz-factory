@@ -36,14 +36,19 @@ interface CRMCustomer {
   total_spent: number;
 }
 
+interface DayRange {
+  minDays: number;
+  maxDays: number | null;
+  label: string;
+  color: string;
+}
+
 interface Summary {
   totalCustomers: number;
   customersWithOrders: number;
   customersNeverOrdered: number;
-  customersNotOrderedIn3Days: number;
-  customersNotOrderedIn7Days: number;
-  customersNotOrderedIn14Days: number;
-  customersNotOrderedIn30Days: number;
+  rangeCounts: Record<string, number>; // key: "minDays-maxDays"
+  dayRanges: DayRange[];
 }
 
 // Customer type badge
@@ -167,11 +172,16 @@ export default function CRMFollowUpPage() {
       params.set('sort_by', sortBy);
       params.set('sort_order', sortOrder);
 
-      // Apply filter - "สั่งไปแล้ว xx วัน"
+      // Apply filter - format: "minDays-maxDays" or "minDays-null"
       if (filterDays === 'never') {
         params.set('has_orders', 'false');
       } else if (filterDays !== 'all') {
-        params.set('min_days', filterDays);
+        // Parse range key format: "0-3" or "15-null"
+        const [minStr, maxStr] = filterDays.split('-');
+        params.set('min_days', minStr);
+        if (maxStr !== 'null') {
+          params.set('max_days', maxStr);
+        }
         params.set('has_orders', 'true');
       }
 
@@ -234,9 +244,10 @@ export default function CRMFollowUpPage() {
           </div>
         </div>
 
-        {/* Summary Cards */}
+        {/* Summary Cards - Dynamic based on settings */}
         {summary && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            {/* Total customers - always show */}
             <button
               onClick={() => setFilterDays('all')}
               className={`bg-white rounded-lg border p-4 text-left transition-all hover:shadow-md ${filterDays === 'all' ? 'border-[#E9B308] ring-2 ring-[#E9B308]/20' : 'border-gray-200'}`}
@@ -248,49 +259,39 @@ export default function CRMFollowUpPage() {
               <div className="text-2xl font-bold text-gray-900">{summary.totalCustomers}</div>
             </button>
 
-            <button
-              onClick={() => setFilterDays('3')}
-              className={`bg-white rounded-lg border p-4 text-left transition-all hover:shadow-md ${filterDays === '3' ? 'border-green-500 ring-2 ring-green-500/20' : 'border-gray-200'}`}
-            >
-              <div className="flex items-center gap-2 text-green-600 mb-1">
-                <Clock className="w-4 h-4" />
-                <span className="text-xs">สั่งไปแล้ว 3+ วัน</span>
-              </div>
-              <div className="text-2xl font-bold text-green-600">{summary.customersNotOrderedIn3Days || 0}</div>
-            </button>
+            {/* Dynamic range cards from settings */}
+            {summary.dayRanges.map((range) => {
+              const colorClasses: Record<string, { text: string; border: string; ring: string }> = {
+                green: { text: 'text-green-600', border: 'border-green-500', ring: 'ring-green-500/20' },
+                emerald: { text: 'text-emerald-600', border: 'border-emerald-500', ring: 'ring-emerald-500/20' },
+                yellow: { text: 'text-yellow-600', border: 'border-yellow-500', ring: 'ring-yellow-500/20' },
+                orange: { text: 'text-orange-600', border: 'border-orange-500', ring: 'ring-orange-500/20' },
+                red: { text: 'text-red-600', border: 'border-red-500', ring: 'ring-red-500/20' },
+                pink: { text: 'text-pink-600', border: 'border-pink-500', ring: 'ring-pink-500/20' },
+                purple: { text: 'text-purple-600', border: 'border-purple-500', ring: 'ring-purple-500/20' },
+                blue: { text: 'text-blue-600', border: 'border-blue-500', ring: 'ring-blue-500/20' },
+                gray: { text: 'text-gray-600', border: 'border-gray-500', ring: 'ring-gray-500/20' }
+              };
+              const colors = colorClasses[range.color] || colorClasses.gray;
+              const rangeKey = `${range.minDays}-${range.maxDays ?? 'null'}`;
+              const isActive = filterDays === rangeKey;
+              const count = summary.rangeCounts[rangeKey] || 0;
+              const isWarning = range.color === 'orange' || range.color === 'red';
 
-            <button
-              onClick={() => setFilterDays('7')}
-              className={`bg-white rounded-lg border p-4 text-left transition-all hover:shadow-md ${filterDays === '7' ? 'border-yellow-500 ring-2 ring-yellow-500/20' : 'border-gray-200'}`}
-            >
-              <div className="flex items-center gap-2 text-yellow-600 mb-1">
-                <Clock className="w-4 h-4" />
-                <span className="text-xs">สั่งไปแล้ว 7+ วัน</span>
-              </div>
-              <div className="text-2xl font-bold text-yellow-600">{summary.customersNotOrderedIn7Days}</div>
-            </button>
-
-            <button
-              onClick={() => setFilterDays('14')}
-              className={`bg-white rounded-lg border p-4 text-left transition-all hover:shadow-md ${filterDays === '14' ? 'border-orange-500 ring-2 ring-orange-500/20' : 'border-gray-200'}`}
-            >
-              <div className="flex items-center gap-2 text-orange-600 mb-1">
-                <AlertTriangle className="w-4 h-4" />
-                <span className="text-xs">สั่งไปแล้ว 14+ วัน</span>
-              </div>
-              <div className="text-2xl font-bold text-orange-600">{summary.customersNotOrderedIn14Days}</div>
-            </button>
-
-            <button
-              onClick={() => setFilterDays('30')}
-              className={`bg-white rounded-lg border p-4 text-left transition-all hover:shadow-md ${filterDays === '30' ? 'border-red-500 ring-2 ring-red-500/20' : 'border-gray-200'}`}
-            >
-              <div className="flex items-center gap-2 text-red-600 mb-1">
-                <AlertTriangle className="w-4 h-4" />
-                <span className="text-xs">สั่งไปแล้ว 30+ วัน</span>
-              </div>
-              <div className="text-2xl font-bold text-red-600">{summary.customersNotOrderedIn30Days}</div>
-            </button>
+              return (
+                <button
+                  key={rangeKey}
+                  onClick={() => setFilterDays(rangeKey)}
+                  className={`bg-white rounded-lg border p-4 text-left transition-all hover:shadow-md ${isActive ? `${colors.border} ring-2 ${colors.ring}` : 'border-gray-200'}`}
+                >
+                  <div className={`flex items-center gap-2 ${colors.text} mb-1`}>
+                    {isWarning ? <AlertTriangle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                    <span className="text-xs">{range.label}</span>
+                  </div>
+                  <div className={`text-2xl font-bold ${colors.text}`}>{count}</div>
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -309,7 +310,7 @@ export default function CRMFollowUpPage() {
               />
             </div>
 
-            {/* Filter by days */}
+            {/* Filter by days - Dynamic from settings */}
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-gray-400" />
               <select
@@ -318,13 +319,14 @@ export default function CRMFollowUpPage() {
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm"
               >
                 <option value="all">ทั้งหมด</option>
-                <option value="3">สั่งไปแล้ว 3+ วัน</option>
-                <option value="5">สั่งไปแล้ว 5+ วัน</option>
-                <option value="7">สั่งไปแล้ว 7+ วัน</option>
-                <option value="10">สั่งไปแล้ว 10+ วัน</option>
-                <option value="14">สั่งไปแล้ว 14+ วัน</option>
-                <option value="21">สั่งไปแล้ว 21+ วัน</option>
-                <option value="30">สั่งไปแล้ว 30+ วัน</option>
+                {summary?.dayRanges.map((range) => {
+                  const rangeKey = `${range.minDays}-${range.maxDays ?? 'null'}`;
+                  return (
+                    <option key={rangeKey} value={rangeKey}>
+                      {range.label}
+                    </option>
+                  );
+                })}
                 <option value="never">ยังไม่เคยสั่ง</option>
               </select>
             </div>

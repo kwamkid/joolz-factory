@@ -1,62 +1,175 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
-import { Settings as SettingsIcon, Trash2, AlertTriangle } from 'lucide-react';
+import { Settings as SettingsIcon, Users, Plus, X, Save, Loader2 } from 'lucide-react';
+
+interface DayRange {
+  minDays: number;
+  maxDays: number | null; // null = unlimited (e.g., 30+)
+  label: string;
+  color: string;
+}
+
+// 8 preset colors
+const colorPresets = [
+  { value: 'green', bg: 'bg-green-500', bgLight: 'bg-green-100', textLight: 'text-green-800', label: 'เขียว' },
+  { value: 'emerald', bg: 'bg-emerald-500', bgLight: 'bg-emerald-100', textLight: 'text-emerald-800', label: 'เขียวเข้ม' },
+  { value: 'yellow', bg: 'bg-yellow-500', bgLight: 'bg-yellow-100', textLight: 'text-yellow-800', label: 'เหลือง' },
+  { value: 'orange', bg: 'bg-orange-500', bgLight: 'bg-orange-100', textLight: 'text-orange-800', label: 'ส้ม' },
+  { value: 'red', bg: 'bg-red-500', bgLight: 'bg-red-100', textLight: 'text-red-800', label: 'แดง' },
+  { value: 'pink', bg: 'bg-pink-500', bgLight: 'bg-pink-100', textLight: 'text-pink-800', label: 'ชมพู' },
+  { value: 'purple', bg: 'bg-purple-500', bgLight: 'bg-purple-100', textLight: 'text-purple-800', label: 'ม่วง' },
+  { value: 'blue', bg: 'bg-blue-500', bgLight: 'bg-blue-100', textLight: 'text-blue-800', label: 'น้ำเงิน' },
+];
 
 export default function SettingsPage() {
   const { userProfile } = useAuth();
-  const [confirmText, setConfirmText] = useState('');
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const handleDeleteAllData = async () => {
-    if (confirmText !== 'CONFIRM') {
-      setError('กรุณาพิมพ์ "CONFIRM" เพื่อยืนยัน');
-      return;
+  // CRM Settings
+  const [dayRanges, setDayRanges] = useState<DayRange[]>([]);
+  const [loadingCRM, setLoadingCRM] = useState(true);
+  const [savingCRM, setSavingCRM] = useState(false);
+
+  // Fetch CRM settings
+  useEffect(() => {
+    if (userProfile?.role === 'admin') {
+      fetchCRMSettings();
     }
+  }, [userProfile]);
 
-    setDeleting(true);
-    setError('');
-
+  const fetchCRMSettings = async () => {
     try {
+      setLoadingCRM(true);
       const { data: sessionData } = await supabase.auth.getSession();
 
-      const response = await fetch('/api/settings/delete-all-data', {
-        method: 'DELETE',
+      const response = await fetch('/api/settings/crm', {
         headers: {
           'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
         }
       });
 
       const result = await response.json();
+      if (result.dayRanges) {
+        setDayRanges(result.dayRanges);
+      }
+    } catch (err) {
+      console.error('Error fetching CRM settings:', err);
+    } finally {
+      setLoadingCRM(false);
+    }
+  };
+
+  const handleSaveCRMSettings = async () => {
+    if (dayRanges.length === 0) {
+      setError('กรุณาเพิ่มอย่างน้อย 1 ช่วงวัน');
+      return;
+    }
+
+    setSavingCRM(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+
+      const response = await fetch('/api/settings/crm', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+        },
+        body: JSON.stringify({ dayRanges })
+      });
+
+      const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'ไม่สามารถลบข้อมูลได้');
+        throw new Error(result.error || 'ไม่สามารถบันทึกการตั้งค่าได้');
       }
 
-      setSuccess('ลบข้อมูลทั้งหมดสำเร็จ');
-      setShowDeleteModal(false);
-      setConfirmText('');
-
-      // Reload page after 2 seconds
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
-    } catch (error) {
-      console.error('Error deleting all data:', error);
-      if (error instanceof Error) {
-        setError(error.message);
+      setSuccess('บันทึกการตั้งค่าสำเร็จ');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      console.error('Error saving CRM settings:', err);
+      if (err instanceof Error) {
+        setError(err.message);
       } else {
-        setError('ไม่สามารถลบข้อมูลได้');
+        setError('ไม่สามารถบันทึกการตั้งค่าได้');
       }
     } finally {
-      setDeleting(false);
+      setSavingCRM(false);
     }
+  };
+
+  // Recalculate minDays to ensure no overlap
+  const recalculateRanges = (ranges: DayRange[]): DayRange[] => {
+    // Sort by maxDays (null = infinity at the end)
+    const sorted = [...ranges].sort((a, b) => {
+      if (a.maxDays === null) return 1;
+      if (b.maxDays === null) return -1;
+      return a.maxDays - b.maxDays;
+    });
+
+    // Recalculate minDays
+    let nextMin = 0;
+    return sorted.map((range, index) => {
+      const newMinDays = nextMin;
+      nextMin = range.maxDays !== null ? range.maxDays + 1 : newMinDays + 100;
+
+      // Auto-generate label
+      const label = range.maxDays !== null
+        ? `${newMinDays}-${range.maxDays} วัน`
+        : `${newMinDays}+ วัน`;
+
+      return {
+        ...range,
+        minDays: newMinDays,
+        label
+      };
+    });
+  };
+
+  const handleAddRange = () => {
+    const lastRange = dayRanges[dayRanges.length - 1];
+    const newMaxDays = lastRange
+      ? (lastRange.maxDays !== null ? lastRange.maxDays + 7 : null)
+      : 3;
+
+    const newRange: DayRange = {
+      minDays: 0, // Will be recalculated
+      maxDays: newMaxDays,
+      label: '',
+      color: colorPresets[dayRanges.length % colorPresets.length].value
+    };
+
+    const updated = recalculateRanges([...dayRanges, newRange]);
+    setDayRanges(updated);
+  };
+
+  const handleRemoveRange = (index: number) => {
+    const updated = dayRanges.filter((_, i) => i !== index);
+    setDayRanges(recalculateRanges(updated));
+  };
+
+  const handleUpdateMaxDays = (index: number, value: string) => {
+    const updated = [...dayRanges];
+    updated[index].maxDays = value === '' ? null : Number(value);
+    setDayRanges(recalculateRanges(updated));
+  };
+
+  const handleUpdateColor = (index: number, color: string) => {
+    const updated = [...dayRanges];
+    updated[index].color = color;
+    setDayRanges(updated);
+  };
+
+  const getColorPreset = (color: string) => {
+    return colorPresets.find(c => c.value === color) || colorPresets[0];
   };
 
   // Only allow admin to access this page
@@ -65,7 +178,6 @@ export default function SettingsPage() {
       <Layout>
         <div className="min-h-screen flex items-center justify-center">
           <div className="text-center">
-            <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
             <h2 className="text-2xl font-bold text-gray-800 mb-2">ไม่มีสิทธิ์เข้าถึง</h2>
             <p className="text-gray-600">คุณไม่มีสิทธิ์เข้าถึงหน้านี้</p>
           </div>
@@ -76,126 +188,139 @@ export default function SettingsPage() {
 
   return (
     <Layout>
-      <div className="p-6">
-        <div className="flex items-center gap-3 mb-6">
+      <div className="p-6 space-y-6">
+        <div className="flex items-center gap-3">
           <SettingsIcon className="w-8 h-8 text-[#E9B308]" />
-          <h1 className="text-3xl font-bold text-[#00231F]">ตั้งค่าระบบ</h1>
+          <h1 className="text-2xl font-bold text-[#00231F]">ตั้งค่าระบบ</h1>
         </div>
 
         {/* Success Message */}
         {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg">
+          <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg">
             {success}
           </div>
         )}
 
         {/* Error Message */}
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
             {error}
           </div>
         )}
 
-        {/* Danger Zone */}
-        <div className="bg-white rounded-lg shadow-md p-6 border-2 border-red-200">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertTriangle className="w-6 h-6 text-red-600" />
-            <h2 className="text-xl font-bold text-red-600">Danger Zone</h2>
+        {/* CRM Settings */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center justify-between p-4 border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-[#E9B308]" />
+              <h2 className="text-lg font-semibold text-gray-900">ช่วงวันติดตามลูกค้า</h2>
+            </div>
+            <button
+              onClick={handleSaveCRMSettings}
+              disabled={savingCRM}
+              className="flex items-center gap-2 px-4 py-2 bg-[#E9B308] text-[#00231F] rounded-lg hover:bg-[#d4a307] transition-colors font-medium disabled:opacity-50"
+            >
+              {savingCRM ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              บันทึก
+            </button>
           </div>
 
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                  ลบข้อมูลทั้งหมด
-                </h3>
-                <p className="text-gray-600 mb-2">
-                  ลบข้อมูลทั้งหมดในระบบ ยกเว้นข้อมูลผู้ใช้ (Users)
-                </p>
-                <p className="text-sm text-red-600 font-semibold">
-                  ⚠️ การดำเนินการนี้ไม่สามารถย้อนกลับได้!
-                </p>
-                <ul className="mt-3 text-sm text-gray-700 list-disc list-inside space-y-1">
-                  <li>คำสั่งซื้อทั้งหมด (Orders)</li>
-                  <li>สินค้าพร้อมขายทั้งหมด (Sellable Products)</li>
-                  <li>สินค้าหลักทั้งหมด (Products)</li>
-                  <li>วัตถุดิบทั้งหมด (Raw Materials)</li>
-                  <li>ขวดทั้งหมด (Bottles)</li>
-                  <li>ลูกค้าทั้งหมด (Customers)</li>
-                  <li>ซัพพลายเออร์ทั้งหมด (Suppliers)</li>
-                  <li>การผลิตทั้งหมด (Production)</li>
-                  <li>สต็อคทั้งหมด (Stock Transactions)</li>
-                </ul>
+          <div className="p-4">
+            <p className="text-sm text-gray-600 mb-4">
+              ระบุจำนวนวันสูงสุดของแต่ละช่วง ระบบจะคำนวณช่วงวันให้อัตโนมัติ (เว้นว่างสำหรับไม่จำกัด)
+            </p>
+
+            {loadingCRM ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 text-[#E9B308] animate-spin" />
               </div>
-              <button
-                onClick={() => {
-                  setShowDeleteModal(true);
-                  setError('');
-                  setConfirmText('');
-                }}
-                className="ml-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 font-semibold"
-              >
-                <Trash2 className="w-5 h-5" />
-                ลบข้อมูลทั้งหมด
-              </button>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Header Row */}
+                <div className="grid grid-cols-12 gap-3 px-3 text-xs font-medium text-gray-500 uppercase">
+                  <div className="col-span-1">สี</div>
+                  <div className="col-span-2">ช่วงวัน</div>
+                  <div className="col-span-2">ถึงวันที่</div>
+                  <div className="col-span-6">ตัวอย่าง</div>
+                  <div className="col-span-1"></div>
+                </div>
+
+                {/* Day Ranges */}
+                {dayRanges.map((range, index) => {
+                  const preset = getColorPreset(range.color);
+                  return (
+                    <div key={index} className="grid grid-cols-12 gap-3 items-center p-3 bg-gray-50 rounded-lg">
+                      {/* Color Picker */}
+                      <div className="col-span-1">
+                        <div className="relative group">
+                          <button className={`w-8 h-8 rounded-full ${preset.bg} cursor-pointer ring-2 ring-offset-2 ring-gray-200 hover:ring-[#E9B308] transition-all`} />
+                          <div className="absolute left-0 top-10 hidden group-hover:block p-2 bg-white shadow-xl rounded-lg z-20 border border-gray-200">
+                            <div className="grid grid-cols-4 gap-1.5 w-[130px]">
+                              {colorPresets.map((c) => (
+                                <button
+                                  key={c.value}
+                                  onClick={() => handleUpdateColor(index, c.value)}
+                                  className={`w-7 h-7 rounded-full ${c.bg} hover:scale-110 transition-transform ${range.color === c.value ? 'ring-2 ring-offset-1 ring-gray-500' : ''}`}
+                                  title={c.label}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Calculated Range Display */}
+                      <div className="col-span-2">
+                        <span className="text-sm font-medium text-gray-700">
+                          {range.minDays} - {range.maxDays ?? '∞'}
+                        </span>
+                      </div>
+
+                      {/* Max Days Input */}
+                      <div className="col-span-2">
+                        <input
+                          type="number"
+                          min={range.minDays}
+                          value={range.maxDays ?? ''}
+                          placeholder="∞"
+                          onChange={(e) => handleUpdateMaxDays(index, e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
+                        />
+                      </div>
+
+                      {/* Preview Badge */}
+                      <div className="col-span-6">
+                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${preset.bgLight} ${preset.textLight}`}>
+                          {range.label}
+                        </span>
+                      </div>
+
+                      {/* Remove Button */}
+                      <div className="col-span-1 text-right">
+                        <button
+                          onClick={() => handleRemoveRange(index)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="ลบ"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Add Button */}
+                <button
+                  onClick={handleAddRange}
+                  className="w-full flex items-center justify-center gap-2 p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-[#E9B308] hover:text-[#E9B308] transition-colors"
+                >
+                  <Plus className="w-5 h-5" />
+                  เพิ่มช่วงวัน
+                </button>
+              </div>
+            )}
           </div>
         </div>
-
-        {/* Delete Confirmation Modal */}
-        {showDeleteModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <AlertTriangle className="w-8 h-8 text-red-600" />
-                <h3 className="text-xl font-bold text-gray-900">ยืนยันการลบข้อมูล</h3>
-              </div>
-
-              <div className="mb-6">
-                <p className="text-gray-700 mb-4">
-                  คุณกำลังจะลบข้อมูลทั้งหมดในระบบ ยกเว้นข้อมูลผู้ใช้
-                </p>
-                <div className="bg-red-50 border border-red-200 rounded p-3 mb-4">
-                  <p className="text-red-600 font-semibold text-sm">
-                    ⚠️ การดำเนินการนี้ไม่สามารถย้อนกลับได้!
-                  </p>
-                </div>
-                <p className="text-gray-700 font-semibold mb-2">
-                  พิมพ์ <span className="text-red-600 font-mono">CONFIRM</span> เพื่อยืนยัน:
-                </p>
-                <input
-                  type="text"
-                  value={confirmText}
-                  onChange={(e) => setConfirmText(e.target.value)}
-                  placeholder="พิมพ์ CONFIRM"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                  disabled={deleting}
-                />
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setConfirmText('');
-                    setError('');
-                  }}
-                  disabled={deleting}
-                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  onClick={handleDeleteAllData}
-                  disabled={deleting || confirmText !== 'CONFIRM'}
-                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
-                >
-                  {deleting ? 'กำลังลบ...' : 'ยืนยันการลบ'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </Layout>
   );

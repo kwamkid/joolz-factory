@@ -99,7 +99,9 @@ export default function PendingReportPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch report');
+        const errorData = await response.json();
+        console.error('API Error:', response.status, errorData);
+        throw new Error(errorData.error || 'Failed to fetch report');
       }
 
       const data = await response.json();

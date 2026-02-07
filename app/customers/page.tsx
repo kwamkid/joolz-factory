@@ -15,12 +15,10 @@ import {
   X,
   Loader2,
   Phone,
-  Mail,
-  MapPin,
-  Building2,
-  CreditCard,
-  Filter,
-  Eye
+  MessageCircle,
+  Eye,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 // Customer interface
@@ -46,8 +44,10 @@ interface Customer {
   notes?: string;
   created_at: string;
   updated_at: string;
+  // Stats from API
   shipping_address_count?: number;
-  shipping_address_names?: string[];
+  line_display_name?: string | null;
+  total_order_amount?: number;
 }
 
 // Status badge component
@@ -120,6 +120,11 @@ export default function CustomersPage() {
   const [success, setSuccess] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterActive, setFilterActive] = useState<string>('all');
+  const [filterLine, setFilterLine] = useState<string>('all');
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
 
   // Form state
   const [formData, setFormData] = useState<CustomerFormData>({
@@ -140,7 +145,7 @@ export default function CustomersPage() {
     notes: ''
   });
 
-  // Fetch customers function
+  // Fetch customers function - optimized with single API call
   const fetchCustomers = useCallback(async () => {
     if (dataFetched) return;
 
@@ -152,14 +157,12 @@ export default function CustomersPage() {
         throw new Error('No session');
       }
 
-      const authHeaders = {
-        'Authorization': `Bearer ${session.access_token}`
-      };
-
-      // Fetch customers via API
-      const customersResponse = await fetch('/api/customers', {
+      // Fetch customers with stats in single API call
+      const customersResponse = await fetch('/api/customers?with_stats=true', {
         method: 'GET',
-        headers: authHeaders
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
       });
 
       const customersResult = await customersResponse.json();
@@ -170,41 +173,14 @@ export default function CustomersPage() {
 
       const data = customersResult.customers || [];
 
-      if (data) {
-        // Fetch shipping address counts for all customers
-        const customersWithAddresses = await Promise.all(
-          data.map(async (customer: any) => {
-            try {
-              const response = await fetch(`/api/shipping-addresses?customer_id=${customer.id}`, {
-                headers: authHeaders
-              });
+      // Map customer_type from database
+      const customersWithType = data.map((customer: any) => ({
+        ...customer,
+        customer_type: customer.customer_type_new || customer.customer_type || 'retail'
+      }));
 
-              if (response.ok) {
-                const result = await response.json();
-                const addresses = result.addresses || [];
-                return {
-                  ...customer,
-                  customer_type: customer.customer_type_new || customer.customer_type || 'retail',
-                  shipping_address_count: addresses.length,
-                  shipping_address_names: addresses.map((addr: any) => addr.address_name)
-                };
-              }
-            } catch (err) {
-              console.error(`Error fetching addresses for customer ${customer.id}:`, err);
-            }
-
-            return {
-              ...customer,
-              customer_type: customer.customer_type_new || customer.customer_type || 'retail',
-              shipping_address_count: 0,
-              shipping_address_names: []
-            };
-          })
-        );
-
-        setCustomers(customersWithAddresses as Customer[]);
-        setDataFetched(true);
-      }
+      setCustomers(customersWithType as Customer[]);
+      setDataFetched(true);
     } catch (error) {
       console.error('Error fetching customers:', error);
       setError('ไม่สามารถโหลดข้อมูลลูกค้าได้');
@@ -234,6 +210,11 @@ export default function CustomersPage() {
       fetchCustomers();
     }
   }, [authLoading, userProfile, dataFetched, fetchCustomers]);
+
+  // Reset page when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   // Handle create/update customer
   const handleSaveCustomer = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -336,9 +317,22 @@ export default function CustomersPage() {
     const matchesType = filterType === 'all' || customer.customer_type === filterType;
     const matchesActive = filterActive === 'all' ||
       (filterActive === 'true' ? customer.is_active : !customer.is_active);
+    const matchesLine = filterLine === 'all' ||
+      (filterLine === 'linked' ? !!customer.line_display_name : !customer.line_display_name);
 
-    return matchesSearch && matchesType && matchesActive;
+    return matchesSearch && matchesType && matchesActive && matchesLine;
   });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredCustomers.length / rowsPerPage);
+  const startIndex = (currentPage - 1) * rowsPerPage;
+  const endIndex = startIndex + rowsPerPage;
+  const paginatedCustomers = filteredCustomers.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change
+  const handleFilterChange = () => {
+    setCurrentPage(1);
+  };
 
   if (authLoading || loading) {
     return (
@@ -404,7 +398,7 @@ export default function CustomersPage() {
           {/* Type Filter */}
           <select
             value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
+            onChange={(e) => { setFilterType(e.target.value); setCurrentPage(1); }}
             className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
           >
             <option value="all">ประเภททั้งหมด</option>
@@ -416,12 +410,23 @@ export default function CustomersPage() {
           {/* Active Filter */}
           <select
             value={filterActive}
-            onChange={(e) => setFilterActive(e.target.value)}
+            onChange={(e) => { setFilterActive(e.target.value); setCurrentPage(1); }}
             className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
           >
             <option value="all">สถานะทั้งหมด</option>
             <option value="true">ใช้งาน</option>
             <option value="false">ปิดใช้งาน</option>
+          </select>
+
+          {/* LINE Filter */}
+          <select
+            value={filterLine}
+            onChange={(e) => { setFilterLine(e.target.value); setCurrentPage(1); }}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+          >
+            <option value="all">LINE ทั้งหมด</option>
+            <option value="linked">เชื่อมต่อ LINE แล้ว</option>
+            <option value="not_linked">ยังไม่เชื่อมต่อ</option>
           </select>
         </div>
 
@@ -431,91 +436,104 @@ export default function CustomersPage() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    ชื่อลูกค้า
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px]">
+                    ลูกค้า
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[100px]">
                     ประเภท
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    ผู้ติดต่อ
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[110px]">
+                    เบอร์โทร
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px]">
+                    LINE
+                  </th>
+                  <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-[100px]">
+                    ยอดสั่งซื้อ
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-[60px]">
                     สาขา
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    จังหวัด
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-[90px]">
                     สถานะ
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredCustomers.map((customer) => (
+                {paginatedCustomers.map((customer) => (
                   <tr
                     key={customer.id}
                     onClick={() => router.push(`/customers/${customer.id}`)}
                     className="hover:bg-gray-50 transition-colors cursor-pointer"
                   >
-                    {/* ชื่อลูกค้า: รหัส + ชื่อ + วงเงิน */}
-                    <td className="px-6 py-4">
+                    {/* ลูกค้า: ชื่อ (เด่น) + รหัส (จาง) */}
+                    <td className="px-4 py-3">
                       <div className="flex items-start gap-2">
-                        <Eye className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                        <Eye className="w-4 h-4 text-gray-300 mt-0.5 flex-shrink-0" />
                         <div>
-                          <div className="text-xs text-gray-400 mb-0.5">{customer.customer_code}</div>
                           <div className="font-medium text-gray-900">{customer.name}</div>
-                          {customer.credit_limit > 0 && (
-                            <div className="text-sm text-[#E9B308] font-medium mt-1">
-                              ฿{customer.credit_limit.toLocaleString()}
-                              {customer.credit_days > 0 && (
-                                <span className="text-xs text-gray-500 ml-1">({customer.credit_days} วัน)</span>
-                              )}
-                            </div>
-                          )}
+                          <div className="text-xs text-gray-400">{customer.customer_code}</div>
                         </div>
                       </div>
                     </td>
 
                     {/* ประเภท */}
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 py-3 whitespace-nowrap">
                       <CustomerTypeBadge type={customer.customer_type} />
                     </td>
 
-                    {/* ผู้ติดต่อ: ชื่อ + เบอร์โทร */}
-                    <td className="px-6 py-4">
-                      {customer.contact_person || customer.phone ? (
-                        <div>
-                          {customer.contact_person && (
-                            <div className="text-sm text-gray-900">{customer.contact_person}</div>
-                          )}
-                          {customer.phone && (
-                            <div className="text-sm text-gray-500 mt-0.5">{customer.phone}</div>
-                          )}
-                        </div>
+                    {/* เบอร์โทร - กดโทรได้ */}
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      {customer.phone ? (
+                        <a
+                          href={`tel:${customer.phone}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          {customer.phone}
+                        </a>
                       ) : (
-                        <span className="text-gray-400">-</span>
+                        <span className="text-gray-400 text-sm">-</span>
                       )}
                     </td>
 
-                    {/* สาขา: จำนวนเท่านั้น */}
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      {customer.shipping_address_count ? (
-                        <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#E9B308] bg-opacity-10 text-[#E9B308] font-semibold">
+                    {/* LINE status */}
+                    <td className="px-3 py-3">
+                      {customer.line_display_name ? (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-[#06C755]" title="เชื่อมต่อ LINE แล้ว">
+                          <MessageCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>{customer.line_display_name}</span>
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-sm">-</span>
+                      )}
+                    </td>
+
+                    {/* ยอดสั่งซื้อรวม */}
+                    <td className="px-3 py-3 text-right whitespace-nowrap">
+                      {customer.total_order_amount && customer.total_order_amount > 0 ? (
+                        <span className="text-sm font-medium text-gray-900">
+                          ฿{customer.total_order_amount.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-sm">-</span>
+                      )}
+                    </td>
+
+                    {/* สาขา */}
+                    <td className="px-3 py-3 text-center">
+                      {customer.shipping_address_count && customer.shipping_address_count > 0 ? (
+                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#E9B308]/10 text-[#E9B308] text-sm font-semibold">
                           {customer.shipping_address_count}
-                        </div>
+                        </span>
                       ) : (
-                        <span className="text-gray-400">-</span>
+                        <span className="text-gray-300 text-sm">-</span>
                       )}
-                    </td>
-
-                    {/* จังหวัด */}
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {customer.province || '-'}
                     </td>
 
                     {/* สถานะ */}
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 py-3 text-center">
                       <StatusBadge isActive={customer.is_active} />
                     </td>
                   </tr>
@@ -524,6 +542,77 @@ export default function CustomersPage() {
             </table>
           </div>
         </div>
+
+        {/* Pagination */}
+        {filteredCustomers.length > 0 && (
+          <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">แสดง</span>
+              <select
+                value={rowsPerPage}
+                onChange={(e) => {
+                  setRowsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+              >
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="text-sm text-gray-600">รายการ/หน้า</span>
+            </div>
+
+            <div className="text-sm text-gray-600">
+              แสดง {startIndex + 1}-{Math.min(endIndex, filteredCustomers.length)} จาก {filteredCustomers.length} รายการ
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              {/* Page numbers */}
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
+                      currentPage === pageNum
+                        ? 'bg-[#E9B308] text-[#00231F]'
+                        : 'border border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Empty State */}
         {filteredCustomers.length === 0 && (

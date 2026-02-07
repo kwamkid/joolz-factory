@@ -51,7 +51,7 @@ interface MenuSection {
 
 // Menu sections configuration
 const menuSections: MenuSection[] = [
-  // Sales System - ใช้บ่อยสุด ย้ายมาบนสุด
+  // ระบบการขาย - Sales System
   {
     title: 'ระบบการขาย',
     items: [
@@ -59,6 +59,18 @@ const menuSections: MenuSection[] = [
         label: 'คำสั่งซื้อ',
         href: '/orders',
         icon: <ShoppingCart className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      },
+      {
+        label: 'LINE Chat',
+        href: '/line-chat',
+        icon: <MessageCircle className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      },
+      {
+        label: 'ติดตามลูกค้า',
+        href: '/crm/follow-up',
+        icon: <UserCheck className="w-5 h-5" />,
         roles: ['admin', 'manager', 'sales']
       },
       {
@@ -74,18 +86,6 @@ const menuSections: MenuSection[] = [
         roles: ['admin', 'manager', 'sales']
       },
       {
-        label: 'ติดตามลูกค้า',
-        href: '/crm/follow-up',
-        icon: <UserCheck className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'sales']
-      },
-      {
-        label: 'LINE Chat',
-        href: '/line-chat',
-        icon: <MessageCircle className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'sales']
-      },
-      {
         label: 'สินค้าพร้อมขาย',
         href: '/sellable-products',
         icon: <Package2 className="w-5 h-5" />,
@@ -93,22 +93,40 @@ const menuSections: MenuSection[] = [
       }
     ]
   },
-  // Operation
+  // ระบบจัดซื้อ - Purchasing System
   {
-    title: 'Operation',
+    title: 'ระบบจัดซื้อ',
+    items: [
+      {
+        label: 'สต็อกขวด / ซื้อ-ออก',
+        href: '/bottle-stock',
+        icon: <ArrowUpDown className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'operation']
+      },
+      {
+        label: 'สต็อกวัตถุดิบ / ซื้อ-ออก',
+        href: '/stock',
+        icon: <ArrowUpDown className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'operation']
+      },
+      {
+        label: 'ซัพพลายเออร์',
+        href: '/suppliers',
+        icon: <Users className="w-5 h-5" />,
+        roles: ['admin', 'manager']
+      }
+    ]
+  },
+  // ระบบการผลิต - Production System
+  {
+    title: 'ระบบการผลิต',
     items: [
       {
         label: 'การผลิต',
         href: '/production',
         icon: <Factory className="w-5 h-5" />,
         roles: ['admin', 'manager', 'operation']
-      }
-    ]
-  },
-  // Data Management - ข้อมูลหลักที่ key ครั้งเดียว
-  {
-    title: 'จัดการข้อมูล',
-    items: [
+      },
       {
         label: 'สินค้าผลิต',
         href: '/products',
@@ -126,43 +144,13 @@ const menuSections: MenuSection[] = [
         href: '/raw-materials',
         icon: <Leaf className="w-5 h-5" />,
         roles: ['admin', 'manager']
-      },
-      {
-        label: 'ซัพพลายเออร์',
-        href: '/suppliers',
-        icon: <Users className="w-5 h-5" />,
-        roles: ['admin', 'manager']
       }
     ]
   },
-  // Stock Management - รวมสต็อกและธุรกรรมซื้อ-ออก
-  {
-    title: 'สต็อก และ ซื้อ-ออก',
-    items: [
-      {
-        label: 'สต็อกขวด / ซื้อ-ออก',
-        href: '/bottle-stock',
-        icon: <ArrowUpDown className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'operation']
-      },
-      {
-        label: 'สต็อกวัตถุดิบ / ซื้อ-ออก',
-        href: '/stock',
-        icon: <ArrowUpDown className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'operation']
-      }
-    ]
-  },
-  // Reports
+  // รายงาน - Reports
   {
     title: 'รายงาน',
     items: [
-      {
-        label: 'สรุปออเดอร์ที่ต้องส่ง',
-        href: '/reports/production-plan',
-        icon: <ClipboardList className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'operation']
-      },
       {
         label: 'รายงานยอดขาย',
         href: '/reports/sales',

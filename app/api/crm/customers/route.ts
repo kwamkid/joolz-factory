@@ -240,15 +240,54 @@ export async function GET(request: NextRequest) {
       return sortOrder === 'desc' ? -comparison : comparison;
     });
 
-    // Calculate summary stats
+    // Fetch day ranges from CRM settings
+    interface DayRange {
+      minDays: number;
+      maxDays: number | null;
+      label: string;
+      color: string;
+    }
+
+    let dayRanges: DayRange[] = [
+      { minDays: 0, maxDays: 3, label: '0-3 วัน', color: 'green' },
+      { minDays: 4, maxDays: 7, label: '4-7 วัน', color: 'yellow' },
+      { minDays: 8, maxDays: 14, label: '8-14 วัน', color: 'orange' },
+      { minDays: 15, maxDays: null, label: '15+ วัน', color: 'red' }
+    ];
+
+    try {
+      const { data: settingsData } = await supabaseAdmin
+        .from('crm_settings')
+        .select('setting_value')
+        .eq('setting_key', 'follow_up_day_ranges')
+        .single();
+
+      if (settingsData?.setting_value) {
+        dayRanges = settingsData.setting_value;
+      }
+    } catch {
+      // Use defaults if settings table doesn't exist
+    }
+
+    // Calculate dynamic summary based on configured day ranges (using minDays-maxDays)
+    const rangeCounts: Record<string, number> = {};
+    dayRanges.forEach(range => {
+      const key = `${range.minDays}-${range.maxDays ?? 'null'}`;
+      rangeCounts[key] = enrichedCustomers.filter(c => {
+        if (c.days_since_last_order === null) return false;
+        const days = c.days_since_last_order;
+        const inMin = days >= range.minDays;
+        const inMax = range.maxDays === null || days <= range.maxDays;
+        return inMin && inMax;
+      }).length;
+    });
+
     const summary = {
       totalCustomers: enrichedCustomers.length,
       customersWithOrders: enrichedCustomers.filter(c => c.total_orders > 0).length,
       customersNeverOrdered: enrichedCustomers.filter(c => c.total_orders === 0).length,
-      customersNotOrderedIn3Days: enrichedCustomers.filter(c => c.days_since_last_order !== null && c.days_since_last_order >= 3).length,
-      customersNotOrderedIn7Days: enrichedCustomers.filter(c => c.days_since_last_order !== null && c.days_since_last_order >= 7).length,
-      customersNotOrderedIn14Days: enrichedCustomers.filter(c => c.days_since_last_order !== null && c.days_since_last_order >= 14).length,
-      customersNotOrderedIn30Days: enrichedCustomers.filter(c => c.days_since_last_order !== null && c.days_since_last_order >= 30).length
+      rangeCounts, // Dynamic counts based on settings (key: "minDays-maxDays")
+      dayRanges // Include configured ranges for frontend
     };
 
     return NextResponse.json({

@@ -54,7 +54,7 @@ export default function DateRangePicker({
           apply: 'ตกลง',
         },
       }}
-      inputClassName="w-full px-3 py-2.5 border-2 border-amber-300 rounded-lg text-sm font-normal focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-[#E9B308] bg-amber-50 text-gray-900 placeholder:text-amber-400"
+      inputClassName="w-full h-[42px] px-3 border border-gray-300 rounded-lg text-sm font-normal focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent bg-white text-gray-900 placeholder:text-gray-400"
       toggleClassName="absolute right-0 h-full px-3 text-amber-500 focus:outline-none"
       containerClassName="relative font-bold"
     />

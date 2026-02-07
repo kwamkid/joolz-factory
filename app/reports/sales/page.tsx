@@ -101,8 +101,30 @@ export default function SalesReportPage() {
 
   const [dateRange, setDateRange] = useState<DateValueType>(getDefaultDateRange);
 
-  const startDate = dateRange?.startDate ? String(dateRange.startDate) : '';
-  const endDate = dateRange?.endDate ? String(dateRange.endDate) : '';
+  // Helper to convert date to YYYY-MM-DD string
+  const toDateString = (val: unknown): string => {
+    if (!val) return '';
+    if (val instanceof Date) {
+      const y = val.getFullYear();
+      const m = String(val.getMonth() + 1).padStart(2, '0');
+      const d = String(val.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const s = String(val);
+    const match = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return '';
+  };
+
+  const startDate = toDateString(dateRange?.startDate);
+  const endDate = toDateString(dateRange?.endDate);
 
   // Fetch report data
   const fetchReport = async () => {
@@ -304,7 +326,7 @@ export default function SalesReportPage() {
                 <button
                   key={option.value}
                   onClick={() => setGroupBy(option.value as GroupBy)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 px-4 h-[42px] rounded-lg text-sm font-medium transition-colors ${
                     groupBy === option.value
                       ? 'bg-[#00231F] text-white'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'

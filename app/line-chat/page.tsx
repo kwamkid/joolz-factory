@@ -610,14 +610,17 @@ export default function LineChatPage() {
     })();
   };
 
-  // LINE Official Stickers (free to use)
+  // LINE Official Stickers (free to use) - using correct sticker IDs
+  // Package 1: Moon, James, Brown, Cony, Sally, etc. (packageId: 1, stickers: 1-17)
+  // Package 2: Brown and Friends Special (packageId: 2, stickers: 18-47)
+  // Package 3: Brown, Cony & Sally (packageId: 3, stickers: 180-195)
   const officialStickers = [
-    // Brown & Cony
-    { packageId: '11537', stickers: ['52002734', '52002735', '52002736', '52002737', '52002738', '52002739', '52002740', '52002741'] },
-    // Moon
-    { packageId: '11538', stickers: ['51626494', '51626495', '51626496', '51626497', '51626498', '51626499', '51626500', '51626501'] },
-    // Boss
-    { packageId: '11539', stickers: ['52114110', '52114111', '52114112', '52114113', '52114114', '52114115', '52114116', '52114117'] },
+    // Basic LINE characters
+    { packageId: '1', stickers: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17'] },
+    // Brown and Friends Special
+    { packageId: '2', stickers: ['18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '30', '31', '32'] },
+    // Brown, Cony and Sally
+    { packageId: '3', stickers: ['180', '181', '182', '183', '184', '185', '186', '187', '188', '189', '190', '191', '192', '193', '194', '195'] },
   ];
 
   const fetchCustomers = async (search: string) => {
@@ -1132,7 +1135,7 @@ export default function LineChatPage() {
                       {/* Order History Button */}
                       <button
                         onClick={handleOpenHistory}
-                        className={`flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-lg transition-colors text-sm font-medium ${
+                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors text-sm font-medium ${
                           rightPanel === 'history'
                             ? 'bg-blue-500 text-white'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -1140,7 +1143,7 @@ export default function LineChatPage() {
                         title="ดูประวัติออเดอร์"
                       >
                         <History className="w-4 h-4" />
-                        <span className="hidden sm:inline">ประวัติ</span>
+                        {!rightPanel && <span className="hidden sm:inline">ประวัติ</span>}
                       </button>
                       {/* Open Order Button */}
                       <button
@@ -1151,27 +1154,27 @@ export default function LineChatPage() {
                             setRightPanel(rightPanel === 'order' ? null : 'order');
                           }
                         }}
-                        className={`flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-lg transition-colors text-sm font-medium ${
+                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors text-sm font-medium ${
                           rightPanel === 'order'
-                            ? 'bg-gray-200 text-gray-700'
-                            : 'bg-[#E9B308] text-[#00231F] hover:bg-[#d4a307]'
+                            ? 'bg-[#E9B308] text-[#00231F]'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                         title={rightPanel === 'order' ? 'ปิดหน้าเปิดบิล' : 'เปิดบิล'}
                       >
                         <ShoppingCart className="w-4 h-4" />
-                        <span className="hidden sm:inline">{rightPanel === 'order' ? 'ปิด' : 'เปิดบิล'}</span>
+                        {!rightPanel && <span className="hidden sm:inline">เปิดบิล</span>}
                       </button>
                       {/* Customer Profile Button */}
                       <button
                         onClick={handleOpenProfile}
-                        className={`p-2 rounded-lg transition-colors ${
+                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors text-sm font-medium ${
                           rightPanel === 'profile'
                             ? 'bg-blue-500 text-white'
-                            : 'text-gray-400 hover:bg-gray-100'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                         title="ดูข้อมูลลูกค้า"
                       >
-                        <User className="w-5 h-5" />
+                        <User className="w-4 h-4" />
                       </button>
                     </>
                   )}
@@ -1284,11 +1287,18 @@ export default function LineChatPage() {
                             {/* Sticker */}
                             {msg.message_type === 'sticker' && msg.raw_message?.stickerId ? (
                               <img
-                                src={`https://stickershop.line-scdn.net/stickershop/v1/sticker/${msg.raw_message.stickerId}/iPhone/sticker.png`}
+                                src={`https://stickershop.line-scdn.net/stickershop/v1/sticker/${msg.raw_message.stickerId}/iPhone/sticker@2x.png`}
                                 alt="sticker"
                                 className="w-24 h-24 object-contain"
                                 onError={(e) => {
-                                  (e.target as HTMLImageElement).src = `https://stickershop.line-scdn.net/stickershop/v1/sticker/${msg.raw_message?.stickerId}/iPhone/sticker@2x.png`;
+                                  const img = e.target as HTMLImageElement;
+                                  const stickerId = msg.raw_message?.stickerId;
+                                  // Try different formats
+                                  if (img.src.includes('sticker@2x.png')) {
+                                    img.src = `https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/iPhone/sticker.png`;
+                                  } else if (img.src.includes('sticker.png')) {
+                                    img.src = `https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/android/sticker.png`;
+                                  }
                                 }}
                               />
                             ) : msg.message_type === 'image' && msg.raw_message?.imageUrl ? (
@@ -1373,9 +1383,15 @@ export default function LineChatPage() {
                                 className="p-1.5 md:p-2 hover:bg-gray-100 rounded-lg transition-colors"
                               >
                                 <img
-                                  src={`https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/iPhone/sticker.png`}
+                                  src={`https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/iPhone/sticker@2x.png`}
                                   alt="sticker"
                                   className="w-10 h-10 md:w-12 md:h-12 object-contain"
+                                  onError={(e) => {
+                                    const img = e.target as HTMLImageElement;
+                                    if (img.src.includes('@2x')) {
+                                      img.src = `https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/iPhone/sticker.png`;
+                                    }
+                                  }}
                                 />
                               </button>
                             ))}
