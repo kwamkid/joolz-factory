@@ -510,7 +510,7 @@ export default function OrdersPage() {
                   placeholder="ค้นหาเลขที่, ชื่อลูกค้า, รหัส..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                  className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
                 />
               </div>
               <DateRangePicker
@@ -624,7 +624,7 @@ export default function OrdersPage() {
                   setRecordsPerPage(Number(e.target.value));
                   setCurrentPage(1);
                 }}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
               >
                 <option value={20}>20</option>
                 <option value={50}>50</option>
@@ -979,7 +979,7 @@ export default function OrdersPage() {
                           value={paymentDetails.collectedBy}
                           onChange={(e) => setPaymentDetails({ ...paymentDetails, collectedBy: e.target.value })}
                           placeholder="ระบุชื่อคนเก็บเงิน"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
                         />
                       </div>
                     )}
@@ -996,7 +996,7 @@ export default function OrdersPage() {
                               type="date"
                               value={paymentDetails.transferDate}
                               onChange={(e) => setPaymentDetails({ ...paymentDetails, transferDate: e.target.value })}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
                             />
                           </div>
                           <div>
@@ -1007,7 +1007,7 @@ export default function OrdersPage() {
                               type="time"
                               value={paymentDetails.transferTime}
                               onChange={(e) => setPaymentDetails({ ...paymentDetails, transferTime: e.target.value })}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
                             />
                           </div>
                         </div>
@@ -1024,7 +1024,7 @@ export default function OrdersPage() {
                         onChange={(e) => setPaymentDetails({ ...paymentDetails, notes: e.target.value })}
                         placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
                         rows={2}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
                       />
                     </div>
                   </div>

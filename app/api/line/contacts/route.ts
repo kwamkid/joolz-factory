@@ -52,6 +52,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search');
     const unreadOnly = searchParams.get('unread_only') === 'true';
+    const linkedOnly = searchParams.get('linked_only') === 'true';
+    const unlinkedOnly = searchParams.get('unlinked_only') === 'true';
+    // Order days range filter
+    const orderDaysMin = searchParams.get('order_days_min');
+    const orderDaysMax = searchParams.get('order_days_max');
 
     let query = supabaseAdmin
       .from('line_contacts')
@@ -70,7 +75,110 @@ export async function GET(request: NextRequest) {
       query = query.gt('unread_count', 0);
     }
 
+    if (linkedOnly) {
+      query = query.not('customer_id', 'is', null);
+    }
+
+    if (unlinkedOnly) {
+      query = query.is('customer_id', null);
+    }
+
     const { data: contacts, error } = await query;
+
+    // If filtering by last order days, we need to filter after fetching
+    let filteredContacts = contacts || [];
+
+    if (orderDaysMin && linkedOnly) {
+      // Get customer IDs from contacts
+      const customerIds = filteredContacts
+        .filter(c => c.customer_id)
+        .map(c => c.customer_id);
+
+      if (customerIds.length > 0) {
+        // Get last order date for each customer
+        const { data: lastOrders } = await supabaseAdmin
+          .from('orders')
+          .select('customer_id, order_date')
+          .in('customer_id', customerIds)
+          .order('order_date', { ascending: false });
+
+        // Build map of customer_id -> last_order_date
+        const lastOrderMap = new Map<string, string>();
+        (lastOrders || []).forEach(order => {
+          if (!lastOrderMap.has(order.customer_id)) {
+            lastOrderMap.set(order.customer_id, order.order_date);
+          }
+        });
+
+        // Calculate cutoff dates for range
+        const minDays = parseInt(orderDaysMin, 10);
+        const maxDays = orderDaysMax ? parseInt(orderDaysMax, 10) : null;
+
+        const minCutoffDate = new Date();
+        minCutoffDate.setDate(minCutoffDate.getDate() - minDays);
+        const minCutoffStr = minCutoffDate.toISOString().split('T')[0];
+
+        let maxCutoffStr: string | null = null;
+        if (maxDays !== null) {
+          const maxCutoffDate = new Date();
+          maxCutoffDate.setDate(maxCutoffDate.getDate() - maxDays);
+          maxCutoffStr = maxCutoffDate.toISOString().split('T')[0];
+        }
+
+        // Filter contacts by last order date range
+        // Show customers whose last order is between minDays and maxDays ago
+        filteredContacts = filteredContacts.filter(c => {
+          if (!c.customer_id) return false;
+          const lastOrder = lastOrderMap.get(c.customer_id);
+
+          // No orders = include if we want 60+ days (no max)
+          if (!lastOrder) {
+            return maxDays === null; // Only include "never ordered" in 60+ category
+          }
+
+          // Last order must be older than minDays (before minCutoff)
+          if (lastOrder >= minCutoffStr) return false;
+
+          // If maxDays specified, last order must be newer than maxDays (after maxCutoff)
+          if (maxCutoffStr !== null && lastOrder < maxCutoffStr) return false;
+
+          return true;
+        });
+
+        // Add last_order_date to contacts
+        filteredContacts = filteredContacts.map(c => ({
+          ...c,
+          last_order_date: lastOrderMap.get(c.customer_id) || null
+        }));
+      } else {
+        filteredContacts = [];
+      }
+    } else if (linkedOnly) {
+      // Add last order date even without day filter
+      const customerIds = filteredContacts
+        .filter(c => c.customer_id)
+        .map(c => c.customer_id);
+
+      if (customerIds.length > 0) {
+        const { data: lastOrders } = await supabaseAdmin
+          .from('orders')
+          .select('customer_id, order_date')
+          .in('customer_id', customerIds)
+          .order('order_date', { ascending: false });
+
+        const lastOrderMap = new Map<string, string>();
+        (lastOrders || []).forEach(order => {
+          if (!lastOrderMap.has(order.customer_id)) {
+            lastOrderMap.set(order.customer_id, order.order_date);
+          }
+        });
+
+        filteredContacts = filteredContacts.map(c => ({
+          ...c,
+          last_order_date: c.customer_id ? lastOrderMap.get(c.customer_id) || null : null
+        }));
+      }
+    }
 
     if (error) {
       return NextResponse.json(
@@ -80,7 +188,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get last message for each contact
-    const contactIds = (contacts || []).map(c => c.id);
+    const contactIds = filteredContacts.map(c => c.id);
 
     // Get latest message per contact
     const { data: lastMessages } = await supabaseAdmin
@@ -106,18 +214,18 @@ export async function GET(request: NextRequest) {
     });
 
     // Add last_message to contacts
-    const contactsWithLastMessage = (contacts || []).map(contact => ({
+    const contactsWithLastMessage = filteredContacts.map(contact => ({
       ...contact,
       last_message: lastMessageMap.get(contact.id) || null
     }));
 
     // Get unread counts summary
-    const totalUnread = (contacts || []).reduce((sum, c) => sum + (c.unread_count || 0), 0);
+    const totalUnread = filteredContacts.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
     return NextResponse.json({
       contacts: contactsWithLastMessage,
       summary: {
-        total: contacts?.length || 0,
+        total: filteredContacts.length,
         totalUnread
       }
     });
