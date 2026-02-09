@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -29,10 +29,12 @@ import {
   UserCheck,
   UserX,
   Clock,
-  Bell
+  Bell,
+  UserPlus
 } from 'lucide-react';
 import Image from 'next/image';
 import OrderForm from '@/components/orders/OrderForm';
+import CustomerForm, { CustomerFormData } from '@/components/customers/CustomerForm';
 
 interface LineContact {
   id: string;
@@ -45,11 +47,28 @@ interface LineContact {
     id: string;
     name: string;
     customer_code: string;
+    contact_person?: string;
+    phone?: string;
+    email?: string;
+    customer_type?: 'retail' | 'wholesale' | 'distributor';
+    address?: string;
+    district?: string;
+    amphoe?: string;
+    province?: string;
+    postal_code?: string;
+    tax_id?: string;
+    tax_company_name?: string;
+    tax_branch?: string;
+    credit_limit?: number;
+    credit_days?: number;
+    notes?: string;
+    is_active?: boolean;
   };
   unread_count: number;
   last_message_at?: string;
   last_message?: string; // Preview of last message
   last_order_date?: string; // Last order date for linked customers
+  avg_order_frequency?: number | null; // Average days between orders
 }
 
 interface LineMessage {
@@ -103,6 +122,7 @@ interface DayRange {
 
 export default function LineChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { userProfile, loading: authLoading } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -140,11 +160,19 @@ export default function LineChatPage() {
   // Scroll to bottom button
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // Right panel (split view) - desktop only: 'order' | 'history' | 'profile' | null
-  const [rightPanel, setRightPanel] = useState<'order' | 'history' | 'profile' | null>(null);
+  // Right panel (split view) - desktop only: 'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer' | null
+  const [rightPanel, setRightPanel] = useState<'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer' | null>(null);
 
-  // Mobile view mode: 'contacts' | 'chat' | 'order' | 'history' | 'profile'
-  const [mobileView, setMobileView] = useState<'contacts' | 'chat' | 'order' | 'history' | 'profile'>('contacts');
+  // Mobile view mode: 'contacts' | 'chat' | 'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer'
+  const [mobileView, setMobileView] = useState<'contacts' | 'chat' | 'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer'>('contacts');
+
+  // Create customer state
+  const [savingCustomer, setSavingCustomer] = useState(false);
+  const [customerError, setCustomerError] = useState('');
+
+  // Edit customer state
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [editCustomerError, setEditCustomerError] = useState('');
 
   // Order history data
   const [orderHistory, setOrderHistory] = useState<any[]>([]);
@@ -194,6 +222,19 @@ export default function LineChatPage() {
       fetchContacts();
     }
   }, [authLoading, userProfile, searchTerm, filterLinked, filterUnread, filterOrderDaysRange]);
+
+  // Auto-select contact from URL param (e.g., /line-chat?user=U1234567890)
+  useEffect(() => {
+    const lineUserId = searchParams.get('user');
+    if (lineUserId && contacts.length > 0 && !selectedContact) {
+      const contact = contacts.find(c => c.line_user_id === lineUserId);
+      if (contact) {
+        setSelectedContact(contact);
+        // Clear the URL param after selecting
+        router.replace('/line-chat', { scroll: false });
+      }
+    }
+  }, [searchParams, contacts, selectedContact, router]);
 
   // Fetch messages when contact selected
   useEffect(() => {
@@ -734,6 +775,265 @@ export default function LineChatPage() {
     }
   };
 
+  // Create new customer and link to contact
+  const handleCreateCustomer = async (formData: CustomerFormData) => {
+    if (!selectedContact) return;
+
+    setSavingCustomer(true);
+    setCustomerError('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No session');
+
+      // Determine billing address (use shipping if same_as_shipping is checked)
+      const billingAddress = formData.billing_same_as_shipping ? formData.shipping_address : formData.billing_address;
+      const billingDistrict = formData.billing_same_as_shipping ? formData.shipping_district : formData.billing_district;
+      const billingAmphoe = formData.billing_same_as_shipping ? formData.shipping_amphoe : formData.billing_amphoe;
+      const billingProvince = formData.billing_same_as_shipping ? formData.shipping_province : formData.billing_province;
+      const billingPostalCode = formData.billing_same_as_shipping ? formData.shipping_postal_code : formData.billing_postal_code;
+
+      // 1. Create customer with billing address and tax info
+      const customerPayload = {
+        name: formData.name,
+        contact_person: formData.contact_person,
+        phone: formData.phone,
+        email: formData.email,
+        customer_type: formData.customer_type,
+        credit_limit: formData.credit_limit,
+        credit_days: formData.credit_days,
+        is_active: formData.is_active,
+        notes: formData.notes,
+        // Tax invoice info (if needed)
+        tax_id: formData.needs_tax_invoice ? formData.tax_id : '',
+        tax_company_name: formData.needs_tax_invoice ? formData.tax_company_name : '',
+        tax_branch: formData.needs_tax_invoice ? formData.tax_branch : '',
+        // Billing address fields
+        address: billingAddress,
+        district: billingDistrict,
+        amphoe: billingAmphoe,
+        province: billingProvince,
+        postal_code: billingPostalCode
+      };
+
+      const createResponse = await fetch('/api/customers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(customerPayload)
+      });
+
+      if (!createResponse.ok) {
+        const error = await createResponse.json();
+        throw new Error(error.error || 'Failed to create customer');
+      }
+
+      const newCustomer = await createResponse.json();
+
+      // 2. Create shipping address if provided
+      if (formData.shipping_address || formData.shipping_province) {
+        const shippingPayload = {
+          customer_id: newCustomer.id,
+          address_name: formData.shipping_address_name || 'สาขาหลัก',
+          contact_person: formData.shipping_contact_person || formData.contact_person,
+          phone: formData.shipping_phone || formData.phone,
+          address_line1: formData.shipping_address,
+          district: formData.shipping_district,
+          amphoe: formData.shipping_amphoe,
+          province: formData.shipping_province,
+          postal_code: formData.shipping_postal_code,
+          google_maps_link: formData.shipping_google_maps_link,
+          delivery_notes: formData.shipping_delivery_notes,
+          is_default: true
+        };
+
+        await fetch('/api/shipping-addresses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify(shippingPayload)
+        });
+      }
+
+      // 3. Link to LINE contact
+      const linkResponse = await fetch('/api/line/contacts', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          id: selectedContact.id,
+          customer_id: newCustomer.id
+        })
+      });
+
+      if (!linkResponse.ok) throw new Error('Failed to link customer');
+
+      // 4. Update local state
+      setSelectedContact(prev => prev ? {
+        ...prev,
+        customer_id: newCustomer.id,
+        customer: {
+          id: newCustomer.id,
+          name: newCustomer.name,
+          customer_code: newCustomer.customer_code
+        }
+      } : null);
+
+      setContacts(prev => prev.map(c =>
+        c.id === selectedContact.id ? {
+          ...c,
+          customer_id: newCustomer.id,
+          customer: {
+            id: newCustomer.id,
+            name: newCustomer.name,
+            customer_code: newCustomer.customer_code
+          }
+        } : c
+      ));
+
+      // Close panel
+      setRightPanel(null);
+      setMobileView('chat');
+
+    } catch (error) {
+      console.error('Error creating customer:', error);
+      setCustomerError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด');
+      throw error;
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
+
+  // Open create customer panel
+  const handleOpenCreateCustomer = () => {
+    setCustomerError('');
+
+    if (window.innerWidth < 768) {
+      setMobileView('create-customer');
+    } else {
+      setRightPanel('create-customer');
+    }
+  };
+
+  // Open edit customer panel
+  const handleOpenEditCustomer = () => {
+    setEditCustomerError('');
+
+    if (window.innerWidth < 768) {
+      setMobileView('edit-customer');
+    } else {
+      setRightPanel('edit-customer');
+    }
+  };
+
+  // Update customer from chat
+  const handleUpdateCustomerInChat = async (formData: CustomerFormData) => {
+    if (!selectedContact?.customer) return;
+
+    setEditingCustomer(true);
+    setEditCustomerError('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No session');
+
+      // Determine billing address (use shipping if same_as_shipping is checked)
+      const billingAddress = formData.billing_same_as_shipping ? formData.shipping_address : formData.billing_address;
+      const billingDistrict = formData.billing_same_as_shipping ? formData.shipping_district : formData.billing_district;
+      const billingAmphoe = formData.billing_same_as_shipping ? formData.shipping_amphoe : formData.billing_amphoe;
+      const billingProvince = formData.billing_same_as_shipping ? formData.shipping_province : formData.billing_province;
+      const billingPostalCode = formData.billing_same_as_shipping ? formData.shipping_postal_code : formData.billing_postal_code;
+
+      const payload = {
+        id: selectedContact.customer.id,
+        name: formData.name,
+        contact_person: formData.contact_person,
+        phone: formData.phone,
+        email: formData.email,
+        customer_type: formData.customer_type,
+        credit_limit: formData.credit_limit,
+        credit_days: formData.credit_days,
+        is_active: formData.is_active,
+        notes: formData.notes,
+        // Tax invoice info (if needed)
+        tax_id: formData.needs_tax_invoice ? formData.tax_id : '',
+        tax_company_name: formData.needs_tax_invoice ? formData.tax_company_name : '',
+        tax_branch: formData.needs_tax_invoice ? formData.tax_branch : '',
+        // Billing address fields
+        address: billingAddress,
+        district: billingDistrict,
+        amphoe: billingAmphoe,
+        province: billingProvince,
+        postal_code: billingPostalCode
+      };
+
+      const response = await fetch('/api/customers', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update customer');
+      }
+
+      // Update local state with new customer data
+      const updatedCustomer = {
+        ...selectedContact.customer,
+        name: formData.name,
+        contact_person: formData.contact_person,
+        phone: formData.phone,
+        email: formData.email,
+        customer_type: formData.customer_type as 'retail' | 'wholesale' | 'distributor',
+        address: billingAddress,
+        district: billingDistrict,
+        amphoe: billingAmphoe,
+        province: billingProvince,
+        postal_code: billingPostalCode,
+        tax_id: formData.needs_tax_invoice ? formData.tax_id : '',
+        tax_company_name: formData.needs_tax_invoice ? formData.tax_company_name : '',
+        tax_branch: formData.needs_tax_invoice ? formData.tax_branch : '',
+        credit_limit: formData.credit_limit,
+        credit_days: formData.credit_days,
+        notes: formData.notes,
+        is_active: formData.is_active
+      };
+
+      setSelectedContact(prev => prev ? {
+        ...prev,
+        customer: updatedCustomer
+      } : null);
+
+      setContacts(prev => prev.map(c =>
+        c.id === selectedContact.id ? {
+          ...c,
+          customer: updatedCustomer
+        } : c
+      ));
+
+      // Close panel and go back to profile
+      setRightPanel('profile');
+      setMobileView('chat');
+
+    } catch (error) {
+      console.error('Error updating customer:', error);
+      setEditCustomerError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด');
+      throw error;
+    } finally {
+      setEditingCustomer(false);
+    }
+  };
+
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -897,14 +1197,14 @@ export default function LineChatPage() {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="ค้นหาชื่อ..."
-                  className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#06C755]"
+                  className="w-full h-[42px] pl-9 pr-4 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#06C755]"
                 />
               </div>
               {/* Filter button */}
-              <div className="relative" data-filter-popover>
+              <div className="relative h-[42px]" data-filter-popover>
                 <button
                   onClick={() => setShowFilterPopover(!showFilterPopover)}
-                  className={`p-2 border rounded-lg transition-colors ${hasActiveFilter ? 'bg-[#06C755] border-[#06C755] text-white' : 'border-gray-300 text-gray-500 hover:bg-gray-50'}`}
+                  className={`h-full w-[42px] flex items-center justify-center border rounded-lg transition-colors ${hasActiveFilter ? 'bg-[#06C755] border-[#06C755] text-white' : 'border-gray-300 text-gray-500 hover:bg-gray-50'}`}
                   title="กรองรายชื่อ"
                 >
                   <Filter className="w-5 h-5" />
@@ -1157,9 +1457,25 @@ export default function LineChatPage() {
                   <div>
                     <h3 className="font-medium text-gray-900">{selectedContact.display_name}</h3>
                     {selectedContact.customer ? (
-                      <p className="text-xs text-[#06C755]">
-                        {selectedContact.customer.customer_code} - {selectedContact.customer.name}
-                      </p>
+                      <div className="flex flex-col gap-0.5">
+                        <p className="text-xs text-[#06C755]">
+                          {selectedContact.customer.customer_code} - {selectedContact.customer.name}
+                        </p>
+                        <p className="text-[10px] text-gray-500 flex items-center gap-2">
+                          {selectedContact.last_order_date ? (
+                            <span>
+                              ออเดอร์ล่าสุด: {new Date(selectedContact.last_order_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                            </span>
+                          ) : (
+                            <span className="text-orange-500">ยังไม่เคยสั่ง</span>
+                          )}
+                          {selectedContact.avg_order_frequency && (
+                            <span className="text-gray-400">
+                              • เฉลี่ย {selectedContact.avg_order_frequency} วัน/ออเดอร์
+                            </span>
+                          )}
+                        </p>
+                      </div>
                     ) : (
                       <button
                         onClick={() => {
@@ -1177,7 +1493,7 @@ export default function LineChatPage() {
                 </div>
 
                 <div className="flex items-center gap-1 md:gap-2">
-                  {selectedContact.customer && (
+                  {selectedContact.customer ? (
                     <>
                       {/* Order History Button */}
                       <button
@@ -1222,6 +1538,35 @@ export default function LineChatPage() {
                         title="ดูข้อมูลลูกค้า"
                       >
                         <User className="w-4 h-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {/* Create Customer Button - for unlinked contacts */}
+                      <button
+                        onClick={handleOpenCreateCustomer}
+                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors text-sm font-medium ${
+                          rightPanel === 'create-customer'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                        }`}
+                        title="สร้างลูกค้าใหม่"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        {!rightPanel && <span className="hidden sm:inline">สร้างลูกค้า</span>}
+                      </button>
+                      {/* Link Existing Customer Button */}
+                      <button
+                        onClick={() => {
+                          setShowLinkModal(true);
+                          setCustomerSearch('');
+                          setCustomers([]);
+                        }}
+                        className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        title="เชื่อมลูกค้าที่มีอยู่"
+                      >
+                        <LinkIcon className="w-4 h-4" />
+                        {!rightPanel && <span className="hidden sm:inline">เชื่อมลูกค้า</span>}
                       </button>
                     </>
                   )}
@@ -1642,32 +1987,132 @@ export default function LineChatPage() {
                 </div>
               </div>
               <button
-                onClick={() => router.push(`/customers/${selectedContact.customer!.id}`)}
+                onClick={handleOpenEditCustomer}
                 className="px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
               >
-                ดูเพิ่มเติม
+                แก้ไข
               </button>
             </div>
 
             {/* Customer Info */}
             <div className="flex-1 overflow-y-auto p-4">
               <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
+                {/* Header with picture */}
                 <div className="text-center pb-4 border-b border-gray-100">
                   <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
                     <User className="w-8 h-8 text-blue-500" />
                   </div>
                   <h3 className="text-lg font-semibold text-gray-900">{selectedContact.customer.name}</h3>
                   <p className="text-sm text-gray-500">{selectedContact.customer.customer_code}</p>
+                  <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    selectedContact.customer.customer_type === 'retail' ? 'bg-blue-100 text-blue-800' :
+                    selectedContact.customer.customer_type === 'wholesale' ? 'bg-purple-100 text-purple-800' :
+                    'bg-green-100 text-green-800'
+                  }`}>
+                    {selectedContact.customer.customer_type === 'retail' ? 'ขายปลีก' :
+                     selectedContact.customer.customer_type === 'wholesale' ? 'ขายส่ง' : 'ตัวแทนจำหน่าย'}
+                  </span>
                 </div>
 
+                {/* Contact info */}
                 <div className="space-y-3">
                   <div>
                     <label className="text-xs text-gray-500">LINE</label>
-                    <p className="text-sm font-medium text-gray-900">{selectedContact.display_name}</p>
+                    <p className="text-sm font-medium text-gray-900 flex items-center gap-1">
+                      <MessageCircle className="w-3.5 h-3.5 text-[#06C755]" />
+                      {selectedContact.display_name}
+                    </p>
                   </div>
+
+                  {selectedContact.customer.contact_person && (
+                    <div>
+                      <label className="text-xs text-gray-500">ผู้ติดต่อ</label>
+                      <p className="text-sm font-medium text-gray-900">{selectedContact.customer.contact_person}</p>
+                    </div>
+                  )}
+
+                  {selectedContact.customer.phone && (
+                    <div>
+                      <label className="text-xs text-gray-500">เบอร์โทร</label>
+                      <a
+                        href={`tel:${selectedContact.customer.phone}`}
+                        className="text-sm font-medium text-blue-600 hover:underline flex items-center gap-1"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        {selectedContact.customer.phone}
+                      </a>
+                    </div>
+                  )}
+
+                  {selectedContact.customer.email && (
+                    <div>
+                      <label className="text-xs text-gray-500">อีเมล</label>
+                      <p className="text-sm font-medium text-gray-900">{selectedContact.customer.email}</p>
+                    </div>
+                  )}
                 </div>
 
-                <div className="pt-4 border-t border-gray-100">
+                {/* Address */}
+                {(selectedContact.customer.address || selectedContact.customer.province) && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <label className="text-xs text-gray-500">ที่อยู่ออกบิล</label>
+                    <p className="text-sm text-gray-900">
+                      {[
+                        selectedContact.customer.address,
+                        selectedContact.customer.district,
+                        selectedContact.customer.amphoe,
+                        selectedContact.customer.province,
+                        selectedContact.customer.postal_code
+                      ].filter(Boolean).join(' ')}
+                    </p>
+                  </div>
+                )}
+
+                {/* Tax info */}
+                {selectedContact.customer.tax_id && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <label className="text-xs text-gray-500">ข้อมูลใบกำกับภาษี</label>
+                    {selectedContact.customer.tax_company_name && (
+                      <p className="text-sm font-medium text-gray-900">{selectedContact.customer.tax_company_name}</p>
+                    )}
+                    <p className="text-sm text-gray-600">เลขผู้เสียภาษี: {selectedContact.customer.tax_id}</p>
+                    {selectedContact.customer.tax_branch && (
+                      <p className="text-sm text-gray-600">สาขา: {selectedContact.customer.tax_branch}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Credit info */}
+                {(selectedContact.customer.credit_limit || selectedContact.customer.credit_days) ? (
+                  <div className="pt-3 border-t border-gray-100">
+                    <label className="text-xs text-gray-500">เงื่อนไขเครดิต</label>
+                    <div className="flex gap-4 mt-1">
+                      {selectedContact.customer.credit_limit ? (
+                        <div>
+                          <span className="text-xs text-gray-500">วงเงิน</span>
+                          <p className="text-sm font-medium text-gray-900">฿{selectedContact.customer.credit_limit.toLocaleString()}</p>
+                        </div>
+                      ) : null}
+                      {selectedContact.customer.credit_days ? (
+                        <div>
+                          <span className="text-xs text-gray-500">ระยะเวลา</span>
+                          <p className="text-sm font-medium text-gray-900">{selectedContact.customer.credit_days} วัน</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Notes */}
+                {selectedContact.customer.notes && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <label className="text-xs text-gray-500">หมายเหตุ</label>
+                    <p className="text-sm text-gray-900 whitespace-pre-wrap">{selectedContact.customer.notes}</p>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="pt-4 border-t border-gray-100 space-y-2">
                   <button
                     onClick={() => setMobileView('order')}
                     className="w-full py-2 bg-[#E9B308] text-[#00231F] rounded-lg font-medium hover:bg-[#d4a307] transition-colors flex items-center justify-center gap-2"
@@ -1675,8 +2120,103 @@ export default function LineChatPage() {
                     <ShoppingCart className="w-4 h-4" />
                     เปิดบิล
                   </button>
+                  <button
+                    onClick={() => window.open(`/customers/${selectedContact.customer!.id}`, '_blank')}
+                    className="w-full py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    ดูรายละเอียดเต็ม
+                  </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Edit Customer View - Full screen on mobile */}
+        {mobileView === 'edit-customer' && selectedContact?.customer && (
+          <div className="flex md:hidden w-full flex-col bg-gray-50">
+            {/* Panel Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setMobileView('profile')}
+                  className="p-1 -ml-1 text-gray-500 hover:text-gray-700"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <User className="w-5 h-5 text-blue-500" />
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">แก้ไขข้อมูลลูกค้า</h2>
+                  <p className="text-xs text-gray-500">{selectedContact.customer.customer_code}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Edit Customer Form */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <CustomerForm
+                compact={true}
+                initialData={{
+                  name: selectedContact.customer.name || '',
+                  contact_person: selectedContact.customer.contact_person || '',
+                  phone: selectedContact.customer.phone || '',
+                  email: selectedContact.customer.email || '',
+                  customer_type: selectedContact.customer.customer_type || 'retail',
+                  credit_limit: selectedContact.customer.credit_limit || 0,
+                  credit_days: selectedContact.customer.credit_days || 0,
+                  is_active: selectedContact.customer.is_active ?? true,
+                  notes: selectedContact.customer.notes || '',
+                  needs_tax_invoice: !!selectedContact.customer.tax_id,
+                  tax_id: selectedContact.customer.tax_id || '',
+                  tax_company_name: selectedContact.customer.tax_company_name || '',
+                  tax_branch: selectedContact.customer.tax_branch || 'สำนักงานใหญ่',
+                  billing_address: selectedContact.customer.address || '',
+                  billing_district: selectedContact.customer.district || '',
+                  billing_amphoe: selectedContact.customer.amphoe || '',
+                  billing_province: selectedContact.customer.province || '',
+                  billing_postal_code: selectedContact.customer.postal_code || '',
+                  billing_same_as_shipping: false
+                }}
+                onSubmit={handleUpdateCustomerInChat}
+                onCancel={() => setMobileView('profile')}
+                isEditing={true}
+                isLoading={editingCustomer}
+                error={editCustomerError}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Create Customer View - Full screen on mobile */}
+        {mobileView === 'create-customer' && selectedContact && !selectedContact.customer && (
+          <div className="flex md:hidden w-full flex-col bg-gray-50">
+            {/* Panel Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setMobileView('chat')}
+                  className="p-1 -ml-1 text-gray-500 hover:text-gray-700"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <UserPlus className="w-5 h-5 text-blue-500" />
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">สร้างลูกค้าใหม่</h2>
+                  <p className="text-xs text-gray-500">LINE: {selectedContact.display_name}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Create Customer Form */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <CustomerForm
+                compact={true}
+                lineDisplayName={selectedContact.display_name}
+                onSubmit={handleCreateCustomer}
+                onCancel={() => setMobileView('chat')}
+                isLoading={savingCustomer}
+                error={customerError}
+              />
             </div>
           </div>
         )}
@@ -1805,10 +2345,10 @@ export default function LineChatPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => router.push(`/customers/${selectedContact.customer!.id}`)}
+                  onClick={handleOpenEditCustomer}
                   className="px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                 >
-                  ดูเพิ่มเติม
+                  แก้ไข
                 </button>
                 <button
                   onClick={() => setRightPanel(null)}
@@ -1823,33 +2363,228 @@ export default function LineChatPage() {
             {/* Customer Info */}
             <div className="flex-1 overflow-y-auto p-4">
               <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
+                {/* Header with picture */}
                 <div className="text-center pb-4 border-b border-gray-100">
                   <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
                     <User className="w-8 h-8 text-blue-500" />
                   </div>
                   <h3 className="text-lg font-semibold text-gray-900">{selectedContact.customer.name}</h3>
                   <p className="text-sm text-gray-500">{selectedContact.customer.customer_code}</p>
+                  <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    selectedContact.customer.customer_type === 'retail' ? 'bg-blue-100 text-blue-800' :
+                    selectedContact.customer.customer_type === 'wholesale' ? 'bg-purple-100 text-purple-800' :
+                    'bg-green-100 text-green-800'
+                  }`}>
+                    {selectedContact.customer.customer_type === 'retail' ? 'ขายปลีก' :
+                     selectedContact.customer.customer_type === 'wholesale' ? 'ขายส่ง' : 'ตัวแทนจำหน่าย'}
+                  </span>
                 </div>
 
+                {/* Contact info */}
                 <div className="space-y-3">
                   <div>
                     <label className="text-xs text-gray-500">LINE</label>
-                    <p className="text-sm font-medium text-gray-900">{selectedContact.display_name}</p>
+                    <p className="text-sm font-medium text-gray-900 flex items-center gap-1">
+                      <MessageCircle className="w-3.5 h-3.5 text-[#06C755]" />
+                      {selectedContact.display_name}
+                    </p>
                   </div>
+
+                  {selectedContact.customer.contact_person && (
+                    <div>
+                      <label className="text-xs text-gray-500">ผู้ติดต่อ</label>
+                      <p className="text-sm font-medium text-gray-900">{selectedContact.customer.contact_person}</p>
+                    </div>
+                  )}
+
+                  {selectedContact.customer.phone && (
+                    <div>
+                      <label className="text-xs text-gray-500">เบอร์โทร</label>
+                      <a
+                        href={`tel:${selectedContact.customer.phone}`}
+                        className="text-sm font-medium text-blue-600 hover:underline flex items-center gap-1"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        {selectedContact.customer.phone}
+                      </a>
+                    </div>
+                  )}
+
+                  {selectedContact.customer.email && (
+                    <div>
+                      <label className="text-xs text-gray-500">อีเมล</label>
+                      <p className="text-sm font-medium text-gray-900">{selectedContact.customer.email}</p>
+                    </div>
+                  )}
                 </div>
 
-                <div className="pt-4 border-t border-gray-100">
+                {/* Address */}
+                {(selectedContact.customer.address || selectedContact.customer.province) && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <label className="text-xs text-gray-500">ที่อยู่ออกบิล</label>
+                    <p className="text-sm text-gray-900">
+                      {[
+                        selectedContact.customer.address,
+                        selectedContact.customer.district,
+                        selectedContact.customer.amphoe,
+                        selectedContact.customer.province,
+                        selectedContact.customer.postal_code
+                      ].filter(Boolean).join(' ')}
+                    </p>
+                  </div>
+                )}
+
+                {/* Tax info */}
+                {selectedContact.customer.tax_id && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <label className="text-xs text-gray-500">ข้อมูลใบกำกับภาษี</label>
+                    {selectedContact.customer.tax_company_name && (
+                      <p className="text-sm font-medium text-gray-900">{selectedContact.customer.tax_company_name}</p>
+                    )}
+                    <p className="text-sm text-gray-600">เลขผู้เสียภาษี: {selectedContact.customer.tax_id}</p>
+                    {selectedContact.customer.tax_branch && (
+                      <p className="text-sm text-gray-600">สาขา: {selectedContact.customer.tax_branch}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Credit info */}
+                {(selectedContact.customer.credit_limit || selectedContact.customer.credit_days) ? (
+                  <div className="pt-3 border-t border-gray-100">
+                    <label className="text-xs text-gray-500">เงื่อนไขเครดิต</label>
+                    <div className="flex gap-4 mt-1">
+                      {selectedContact.customer.credit_limit ? (
+                        <div>
+                          <span className="text-xs text-gray-500">วงเงิน</span>
+                          <p className="text-sm font-medium text-gray-900">฿{selectedContact.customer.credit_limit.toLocaleString()}</p>
+                        </div>
+                      ) : null}
+                      {selectedContact.customer.credit_days ? (
+                        <div>
+                          <span className="text-xs text-gray-500">ระยะเวลา</span>
+                          <p className="text-sm font-medium text-gray-900">{selectedContact.customer.credit_days} วัน</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Notes */}
+                {selectedContact.customer.notes && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <label className="text-xs text-gray-500">หมายเหตุ</label>
+                    <p className="text-sm text-gray-900 whitespace-pre-wrap">{selectedContact.customer.notes}</p>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="pt-4 border-t border-gray-100 space-y-2">
                   <button
-                    onClick={() => {
-                      setRightPanel('order');
-                    }}
+                    onClick={() => setRightPanel('order')}
                     className="w-full py-2 bg-[#E9B308] text-[#00231F] rounded-lg font-medium hover:bg-[#d4a307] transition-colors flex items-center justify-center gap-2"
                   >
                     <ShoppingCart className="w-4 h-4" />
                     เปิดบิล
                   </button>
+                  <button
+                    onClick={() => window.open(`/customers/${selectedContact.customer!.id}`, '_blank')}
+                    className="w-full py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    ดูรายละเอียดเต็ม
+                  </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Customer Panel - Right Side (Desktop only) */}
+        {rightPanel === 'edit-customer' && selectedContact?.customer && (
+          <div className="hidden md:flex flex-1 flex-col border-l border-gray-200 bg-gray-50">
+            {/* Panel Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+              <div className="flex items-center gap-3">
+                <User className="w-5 h-5 text-blue-500" />
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">แก้ไขข้อมูลลูกค้า</h2>
+                  <p className="text-xs text-gray-500">{selectedContact.customer.customer_code}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRightPanel('profile')}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="ปิด"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Edit Customer Form */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <CustomerForm
+                compact={true}
+                initialData={{
+                  name: selectedContact.customer.name || '',
+                  contact_person: selectedContact.customer.contact_person || '',
+                  phone: selectedContact.customer.phone || '',
+                  email: selectedContact.customer.email || '',
+                  customer_type: selectedContact.customer.customer_type || 'retail',
+                  credit_limit: selectedContact.customer.credit_limit || 0,
+                  credit_days: selectedContact.customer.credit_days || 0,
+                  is_active: selectedContact.customer.is_active ?? true,
+                  notes: selectedContact.customer.notes || '',
+                  needs_tax_invoice: !!selectedContact.customer.tax_id,
+                  tax_id: selectedContact.customer.tax_id || '',
+                  tax_company_name: selectedContact.customer.tax_company_name || '',
+                  tax_branch: selectedContact.customer.tax_branch || 'สำนักงานใหญ่',
+                  billing_address: selectedContact.customer.address || '',
+                  billing_district: selectedContact.customer.district || '',
+                  billing_amphoe: selectedContact.customer.amphoe || '',
+                  billing_province: selectedContact.customer.province || '',
+                  billing_postal_code: selectedContact.customer.postal_code || '',
+                  billing_same_as_shipping: false
+                }}
+                onSubmit={handleUpdateCustomerInChat}
+                onCancel={() => setRightPanel('profile')}
+                isEditing={true}
+                isLoading={editingCustomer}
+                error={editCustomerError}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Create Customer Panel - Right Side (Desktop only) */}
+        {rightPanel === 'create-customer' && selectedContact && !selectedContact.customer && (
+          <div className="hidden md:flex flex-1 flex-col border-l border-gray-200 bg-gray-50">
+            {/* Panel Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+              <div className="flex items-center gap-3">
+                <UserPlus className="w-5 h-5 text-blue-500" />
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">สร้างลูกค้าใหม่</h2>
+                  <p className="text-xs text-gray-500">LINE: {selectedContact.display_name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRightPanel(null)}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="ปิด"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Create Customer Form */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <CustomerForm
+                compact={true}
+                lineDisplayName={selectedContact.display_name}
+                onSubmit={handleCreateCustomer}
+                onCancel={() => setRightPanel(null)}
+                isLoading={savingCustomer}
+                error={customerError}
+              />
             </div>
           </div>
         )}

@@ -74,10 +74,16 @@ const menuSections: MenuSection[] = [
         roles: ['admin', 'manager', 'sales']
       },
       {
+        label: 'ติดตามหนี้',
+        href: '/crm/payment-followup',
+        icon: <DollarSign className="w-5 h-5" />,
+        roles: ['admin', 'manager', 'sales']
+      },
+      {
         label: 'การจัดส่ง',
         href: '/reports/delivery-summary',
         icon: <Truck className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'operation', 'sales']
+        roles: ['admin', 'manager', 'sales']
       },
       {
         label: 'ลูกค้า',
@@ -90,60 +96,6 @@ const menuSections: MenuSection[] = [
         href: '/sellable-products',
         icon: <Package2 className="w-5 h-5" />,
         roles: ['admin', 'manager', 'sales']
-      }
-    ]
-  },
-  // ระบบจัดซื้อ - Purchasing System
-  {
-    title: 'ระบบจัดซื้อ',
-    items: [
-      {
-        label: 'สต็อกขวด / ซื้อ-ออก',
-        href: '/bottle-stock',
-        icon: <ArrowUpDown className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'operation']
-      },
-      {
-        label: 'สต็อกวัตถุดิบ / ซื้อ-ออก',
-        href: '/stock',
-        icon: <ArrowUpDown className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'operation']
-      },
-      {
-        label: 'ซัพพลายเออร์',
-        href: '/suppliers',
-        icon: <Users className="w-5 h-5" />,
-        roles: ['admin', 'manager']
-      }
-    ]
-  },
-  // ระบบการผลิต - Production System
-  {
-    title: 'ระบบการผลิต',
-    items: [
-      {
-        label: 'การผลิต',
-        href: '/production',
-        icon: <Factory className="w-5 h-5" />,
-        roles: ['admin', 'manager', 'operation']
-      },
-      {
-        label: 'สินค้าผลิต',
-        href: '/products',
-        icon: <Box className="w-5 h-5" />,
-        roles: ['admin', 'manager']
-      },
-      {
-        label: 'ขวด',
-        href: '/bottles',
-        icon: <Wine className="w-5 h-5" />,
-        roles: ['admin', 'manager']
-      },
-      {
-        label: 'วัตถุดิบ',
-        href: '/raw-materials',
-        icon: <Leaf className="w-5 h-5" />,
-        roles: ['admin', 'manager']
       }
     ]
   },
@@ -165,6 +117,9 @@ const menuSections: MenuSection[] = [
       }
     ]
   }
+  // TODO: ระบบการผลิต - Production System (จะแยกออกเป็นระบบต่างหากภายหลัง)
+  // - การผลิต, สต็อกขวด, สต็อกวัตถุดิบ, ซัพพลายเออร์
+  // - มี role แยก: production (ฝ่ายผลิต) ไม่เห็น Sales เลย
 ];
 
 export default function Sidebar() {

@@ -1,46 +1,58 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import {
-  Users,
+  DollarSign,
   Search,
   Loader2,
   Phone,
   Calendar,
   AlertTriangle,
   Clock,
-  Plus,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   Filter,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   MessageCircle,
+  Users,
+  FileText,
   ExternalLink,
   ChevronsLeft,
   ChevronsRight
 } from 'lucide-react';
 
-interface CRMCustomer {
+interface PendingOrder {
   id: string;
-  customer_code: string;
-  name: string;
-  contact_person?: string;
-  phone?: string;
-  province?: string;
-  customer_type: 'retail' | 'wholesale' | 'distributor';
-  last_order_date: string | null;
-  days_since_last_order: number | null;
-  avg_order_frequency: number | null;
-  total_orders: number;
-  total_spent: number;
-  line_user_id: string | null;
-  line_display_name: string | null;
+  orderNumber: string;
+  orderDate: string;
+  deliveryDate: string | null;
+  totalAmount: number;
+  orderStatus: string;
+  daysAgo: number;
+}
+
+interface CustomerWithPending {
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  contactPerson: string;
+  phone: string;
+  creditDays: number;
+  totalPending: number;
+  orderCount: number;
+  oldestOrderDate: string;
+  newestOrderDate: string;
+  daysOverdue: number;
+  lineUserId: string | null;
+  lineDisplayName: string | null;
+  orders: PendingOrder[];
 }
 
 interface DayRange {
@@ -52,8 +64,8 @@ interface DayRange {
 
 interface Summary {
   totalCustomers: number;
-  customersWithOrders: number;
-  customersNeverOrdered: number;
+  totalOrders: number;
+  totalPending: number;
   customersWithLine: number;
   rangeCounts: Record<string, number>;
   dayRanges: DayRange[];
@@ -64,80 +76,6 @@ interface Pagination {
   limit: number;
   total: number;
   totalPages: number;
-}
-
-// Customer type badge
-function CustomerTypeBadge({ type }: { type: string }) {
-  const colors: Record<string, string> = {
-    retail: 'bg-blue-100 text-blue-800',
-    wholesale: 'bg-purple-100 text-purple-800',
-    distributor: 'bg-green-100 text-green-800'
-  };
-
-  const labels: Record<string, string> = {
-    retail: 'ขายปลีก',
-    wholesale: 'ขายส่ง',
-    distributor: 'ตัวแทนจำหน่าย'
-  };
-
-  return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${colors[type] || 'bg-gray-100 text-gray-800'}`}>
-      {labels[type] || type}
-    </span>
-  );
-}
-
-// Days since last order badge
-function DaysBadge({ days, avgFrequency }: { days: number | null; avgFrequency: number | null }) {
-  if (days === null) {
-    return (
-      <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-        ยังไม่เคยสั่ง
-      </span>
-    );
-  }
-
-  let colorClass = 'bg-green-100 text-green-800';
-  let isOverdue = false;
-
-  if (avgFrequency && days > avgFrequency) {
-    isOverdue = true;
-    const overdueRatio = days / avgFrequency;
-    if (overdueRatio >= 2) {
-      colorClass = 'bg-red-100 text-red-800';
-    } else if (overdueRatio >= 1.5) {
-      colorClass = 'bg-orange-100 text-orange-800';
-    } else {
-      colorClass = 'bg-yellow-100 text-yellow-800';
-    }
-  } else {
-    if (days >= 30) {
-      colorClass = 'bg-red-100 text-red-800';
-    } else if (days >= 14) {
-      colorClass = 'bg-orange-100 text-orange-800';
-    } else if (days >= 7) {
-      colorClass = 'bg-yellow-100 text-yellow-800';
-    }
-  }
-
-  return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${colorClass}`}>
-      {days} วัน {isOverdue && avgFrequency && <span className="opacity-75">(เกิน)</span>}
-    </span>
-  );
-}
-
-// Frequency badge
-function FrequencyBadge({ frequency }: { frequency: number | null }) {
-  if (frequency === null) {
-    return <span className="text-gray-400 text-sm">-</span>;
-  }
-
-  return (
-    <span className="text-sm text-gray-700">
-      ทุก ~{frequency} วัน
-    </span>
-  );
 }
 
 // Sortable header component
@@ -181,21 +119,63 @@ function SortableHeader({
   );
 }
 
-export default function CRMFollowUpPage() {
+// Aging badge - shows how long payment is overdue
+function AgingBadge({ days }: { days: number }) {
+  let colorClass = 'bg-green-100 text-green-800';
+  let icon = <Clock className="w-3 h-3" />;
+
+  if (days > 60) {
+    colorClass = 'bg-purple-100 text-purple-800';
+    icon = <AlertTriangle className="w-3 h-3" />;
+  } else if (days > 30) {
+    colorClass = 'bg-red-100 text-red-800';
+    icon = <AlertTriangle className="w-3 h-3" />;
+  } else if (days > 14) {
+    colorClass = 'bg-orange-100 text-orange-800';
+  } else if (days > 7) {
+    colorClass = 'bg-yellow-100 text-yellow-800';
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${colorClass}`}>
+      {icon}
+      {days} วัน
+    </span>
+  );
+}
+
+// Order status badge
+function OrderStatusBadge({ status }: { status: string }) {
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    new: { label: 'ใหม่', color: 'bg-blue-100 text-blue-700' },
+    shipping: { label: 'กำลังส่ง', color: 'bg-yellow-100 text-yellow-700' },
+    completed: { label: 'ส่งแล้ว', color: 'bg-green-100 text-green-700' }
+  };
+  const config = statusConfig[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
+
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${config.color}`}>
+      {config.label}
+    </span>
+  );
+}
+
+export default function PaymentFollowupPage() {
   const router = useRouter();
   const { userProfile, loading: authLoading } = useAuth();
 
-  const [customers, setCustomers] = useState<CRMCustomer[]>([]);
+  const [customers, setCustomers] = useState<CustomerWithPending[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterDays, setFilterDays] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<string>('days_since_last_order');
+  const [sortBy, setSortBy] = useState<string>('days_overdue');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(20);
@@ -204,12 +184,12 @@ export default function CRMFollowUpPage() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
-      setCurrentPage(1); // Reset to page 1 on search
+      setCurrentPage(1);
     }, 300);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Fetch customers
+  // Fetch data
   useEffect(() => {
     if (!authLoading && userProfile) {
       fetchCustomers();
@@ -233,25 +213,22 @@ export default function CRMFollowUpPage() {
       params.set('limit', rowsPerPage.toString());
 
       // Apply filter
-      if (filterDays === 'never') {
-        params.set('has_orders', 'false');
-      } else if (filterDays !== 'all') {
+      if (filterDays !== 'all') {
         const [minStr, maxStr] = filterDays.split('-');
         params.set('min_days', minStr);
         if (maxStr !== 'null') {
           params.set('max_days', maxStr);
         }
-        params.set('has_orders', 'true');
       }
 
-      const response = await fetch(`/api/crm/customers?${params.toString()}`, {
+      const response = await fetch(`/api/crm/payment-followup?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${session.access_token}`
         }
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch customers');
+        throw new Error('Failed to fetch data');
       }
 
       const result = await response.json();
@@ -260,7 +237,7 @@ export default function CRMFollowUpPage() {
       setPagination(result.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 });
     } catch (error) {
       console.error('Error fetching customers:', error);
-      setError('ไม่สามารถโหลดข้อมูลลูกค้าได้');
+      setError('ไม่สามารถโหลดข้อมูลได้');
     } finally {
       setLoading(false);
     }
@@ -275,6 +252,30 @@ export default function CRMFollowUpPage() {
     });
   };
 
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('th-TH', {
+      style: 'currency',
+      currency: 'THB',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount);
+  };
+
+  const toggleRow = (id: string) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedRows(newExpanded);
+  };
+
+  const handleContactLine = (lineUserId: string) => {
+    // Navigate to LINE chat with this user
+    router.push(`/line-chat?user=${lineUserId}`);
+  };
+
   const handleSort = (field: string) => {
     if (sortBy === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -283,14 +284,6 @@ export default function CRMFollowUpPage() {
       setSortOrder('desc');
     }
     setCurrentPage(1);
-  };
-
-  const handleCreateOrder = (customerId: string) => {
-    router.push(`/orders/new?customer=${customerId}`);
-  };
-
-  const handleContactLine = (lineUserId: string) => {
-    router.push(`/line-chat?user=${lineUserId}`);
   };
 
   const handlePageChange = (newPage: number) => {
@@ -316,38 +309,66 @@ export default function CRMFollowUpPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <Users className="w-7 h-7 text-[#E9B308]" />
-              ติดตามลูกค้า
+              <DollarSign className="w-7 h-7 text-[#E9B308]" />
+              ติดตามหนี้
             </h1>
-            <p className="text-gray-500 mt-1">ติดตามลูกค้าที่ไม่ได้สั่งซื้อนาน</p>
+            <p className="text-gray-500 mt-1">ติดตามยอดค้างชำระจากลูกค้า</p>
           </div>
         </div>
 
         {/* Summary Cards */}
         {summary && (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {/* Total pending */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center gap-2 text-red-600 mb-1">
+                <DollarSign className="w-4 h-4" />
+                <span className="text-xs">ยอดค้างรวม</span>
+              </div>
+              <div className="text-2xl font-bold text-red-600">
+                {formatCurrency(summary.totalPending)}
+              </div>
+            </div>
+
             {/* Total customers */}
-            <button
-              onClick={() => { setFilterDays('all'); setCurrentPage(1); }}
-              className={`bg-white rounded-lg border p-4 text-left transition-all hover:shadow-md ${filterDays === 'all' ? 'border-[#E9B308] ring-2 ring-[#E9B308]/20' : 'border-gray-200'}`}
-            >
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
               <div className="flex items-center gap-2 text-gray-500 mb-1">
                 <Users className="w-4 h-4" />
-                <span className="text-xs">ทั้งหมด</span>
+                <span className="text-xs">ลูกค้าค้างชำระ</span>
               </div>
-              <div className="text-2xl font-bold text-gray-900">{summary.totalCustomers}</div>
-            </button>
+              <div className="text-2xl font-bold text-gray-900">{summary.totalCustomers} ราย</div>
+            </div>
 
-            {/* Never ordered */}
-            <button
-              onClick={() => { setFilterDays('never'); setCurrentPage(1); }}
-              className={`bg-white rounded-lg border p-4 text-left transition-all hover:shadow-md ${filterDays === 'never' ? 'border-gray-500 ring-2 ring-gray-500/20' : 'border-gray-200'}`}
-            >
+            {/* Total orders */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
               <div className="flex items-center gap-2 text-gray-500 mb-1">
-                <Clock className="w-4 h-4" />
-                <span className="text-xs">ยังไม่เคยสั่ง</span>
+                <FileText className="w-4 h-4" />
+                <span className="text-xs">บิลค้างชำระ</span>
               </div>
-              <div className="text-2xl font-bold text-gray-600">{summary.customersNeverOrdered}</div>
+              <div className="text-2xl font-bold text-gray-900">{summary.totalOrders} บิล</div>
+            </div>
+
+            {/* Customers with LINE */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center gap-2 text-green-600 mb-1">
+                <MessageCircle className="w-4 h-4" />
+                <span className="text-xs">เชื่อม LINE แล้ว</span>
+              </div>
+              <div className="text-2xl font-bold text-green-600">{summary.customersWithLine} ราย</div>
+            </div>
+          </div>
+        )}
+
+        {/* Aging Filter Cards */}
+        {summary && (
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+            {/* All */}
+            <button
+              onClick={() => { setFilterDays('all'); setCurrentPage(1); }}
+              className={`bg-white rounded-lg border p-3 text-left transition-all hover:shadow-md ${filterDays === 'all' ? 'border-[#E9B308] ring-2 ring-[#E9B308]/20' : 'border-gray-200'}`}
+            >
+              <div className="text-xs text-gray-500 mb-1">ทั้งหมด</div>
+              <div className="text-xl font-bold text-gray-900">{summary.totalCustomers}</div>
             </button>
 
             {/* Dynamic range cards */}
@@ -359,23 +380,19 @@ export default function CRMFollowUpPage() {
                 red: { text: 'text-red-600', border: 'border-red-500', ring: 'ring-red-500/20' },
                 purple: { text: 'text-purple-600', border: 'border-purple-500', ring: 'ring-purple-500/20' }
               };
-              const colors = colorClasses[range.color] || { text: 'text-gray-600', border: 'border-gray-500', ring: 'ring-gray-500/20' };
+              const colors = colorClasses[range.color] || colorClasses.green;
               const rangeKey = `${range.minDays}-${range.maxDays ?? 'null'}`;
               const isActive = filterDays === rangeKey;
               const count = summary.rangeCounts[rangeKey] || 0;
-              const isWarning = range.color === 'orange' || range.color === 'red';
 
               return (
                 <button
                   key={rangeKey}
                   onClick={() => { setFilterDays(rangeKey); setCurrentPage(1); }}
-                  className={`bg-white rounded-lg border p-4 text-left transition-all hover:shadow-md ${isActive ? `${colors.border} ring-2 ${colors.ring}` : 'border-gray-200'}`}
+                  className={`bg-white rounded-lg border p-3 text-left transition-all hover:shadow-md ${isActive ? `${colors.border} ring-2 ${colors.ring}` : 'border-gray-200'}`}
                 >
-                  <div className={`flex items-center gap-2 ${colors.text} mb-1`}>
-                    {isWarning ? <AlertTriangle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-                    <span className="text-xs">{range.label}</span>
-                  </div>
-                  <div className={`text-2xl font-bold ${colors.text}`}>{count}</div>
+                  <div className={`text-xs ${colors.text} mb-1`}>{range.label}</div>
+                  <div className={`text-xl font-bold ${colors.text}`}>{count}</div>
                 </button>
               );
             })}
@@ -406,7 +423,6 @@ export default function CRMFollowUpPage() {
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm"
               >
                 <option value="all">ทั้งหมด</option>
-                <option value="never">ยังไม่เคยสั่ง</option>
                 {summary?.dayRanges.map((range) => {
                   const rangeKey = `${range.minDays}-${range.maxDays ?? 'null'}`;
                   return (
@@ -450,8 +466,9 @@ export default function CRMFollowUpPage() {
             </div>
           ) : customers.length === 0 ? (
             <div className="text-center py-12">
-              <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">ไม่พบลูกค้าตามเงื่อนไขที่เลือก</p>
+              <DollarSign className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500 text-lg">ไม่มียอดค้างชำระ</p>
+              <p className="text-gray-400 text-sm">ลูกค้าทุกรายชำระเงินครบถ้วนแล้ว</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -466,131 +483,182 @@ export default function CRMFollowUpPage() {
                       onSort={handleSort}
                       className="text-left"
                     />
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ประเภท</th>
                     <SortableHeader
-                      label="สั่งล่าสุด"
-                      field="last_order_date"
+                      label="ค้างมา"
+                      field="days_overdue"
+                      currentSort={sortBy}
+                      currentOrder={sortOrder}
+                      onSort={handleSort}
+                      className="text-center"
+                    />
+                    <SortableHeader
+                      label="จำนวนบิล"
+                      field="order_count"
+                      currentSort={sortBy}
+                      currentOrder={sortOrder}
+                      onSort={handleSort}
+                      className="text-center"
+                    />
+                    <SortableHeader
+                      label="ช่วงบิล"
+                      field="oldest_order"
                       currentSort={sortBy}
                       currentOrder={sortOrder}
                       onSort={handleSort}
                       className="text-left"
                     />
                     <SortableHeader
-                      label="สั่งไปแล้ว"
-                      field="days_since_last_order"
-                      currentSort={sortBy}
-                      currentOrder={sortOrder}
-                      onSort={handleSort}
-                      className="text-center"
-                    />
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">รอบสั่งซื้อ</th>
-                    <SortableHeader
-                      label="ออเดอร์"
-                      field="total_orders"
-                      currentSort={sortBy}
-                      currentOrder={sortOrder}
-                      onSort={handleSort}
-                      className="text-center"
-                    />
-                    <SortableHeader
-                      label="ยอดซื้อรวม"
-                      field="total_spent"
+                      label="ยอดค้าง"
+                      field="total_pending"
                       currentSort={sortBy}
                       currentOrder={sortOrder}
                       onSort={handleSort}
                       className="text-right"
                     />
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">ดำเนินการ</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase w-10"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {customers.map((customer) => (
-                    <tr key={customer.id} className="hover:bg-gray-50">
-                      {/* Customer Info */}
-                      <td className="px-6 py-4">
-                        <div>
-                          <div className="text-xs text-gray-400 mb-0.5">{customer.customer_code}</div>
-                          <div className="font-medium text-gray-900">{customer.name}</div>
-                          {customer.phone && (
-                            <a
-                              href={`tel:${customer.phone}`}
-                              className="flex items-center gap-1 text-sm text-gray-500 hover:text-blue-600 mt-1"
-                            >
-                              <Phone className="w-3 h-3" />
-                              {customer.phone}
-                            </a>
-                          )}
-                        </div>
-                      </td>
+                    <Fragment key={customer.customerId}>
+                      {/* Customer Row */}
+                      <tr
+                        className="hover:bg-gray-50 cursor-pointer"
+                        onClick={() => toggleRow(customer.customerId)}
+                      >
+                        {/* Customer Info */}
+                        <td className="px-6 py-4">
+                          <div>
+                            <div className="text-xs text-gray-400 mb-0.5">{customer.customerCode}</div>
+                            <div className="font-medium text-gray-900">{customer.customerName}</div>
+                            {customer.phone !== '-' && (
+                              <a
+                                href={`tel:${customer.phone}`}
+                                className="flex items-center gap-1 text-sm text-gray-500 hover:text-blue-600 mt-1"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Phone className="w-3 h-3" />
+                                {customer.phone}
+                              </a>
+                            )}
+                          </div>
+                        </td>
 
-                      {/* Type */}
-                      <td className="px-6 py-4">
-                        <CustomerTypeBadge type={customer.customer_type || 'retail'} />
-                      </td>
+                        {/* Days Overdue */}
+                        <td className="px-6 py-4 text-center">
+                          <AgingBadge days={customer.daysOverdue} />
+                        </td>
 
-                      {/* Last Order Date */}
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-1.5 text-sm text-gray-600">
-                          <Calendar className="w-3.5 h-3.5" />
-                          {formatDate(customer.last_order_date)}
-                        </div>
-                      </td>
+                        {/* Order Count */}
+                        <td className="px-6 py-4 text-center">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-700">
+                            {customer.orderCount} บิล
+                          </span>
+                        </td>
 
-                      {/* Days Since Last Order */}
-                      <td className="px-6 py-4 text-center">
-                        <DaysBadge days={customer.days_since_last_order} avgFrequency={customer.avg_order_frequency} />
-                      </td>
+                        {/* Date Range */}
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-1 text-sm text-gray-600">
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>{formatDate(customer.oldestOrderDate)}</span>
+                            {customer.orderCount > 1 && (
+                              <>
+                                <span className="text-gray-400">-</span>
+                                <span>{formatDate(customer.newestOrderDate)}</span>
+                              </>
+                            )}
+                          </div>
+                        </td>
 
-                      {/* Order Frequency */}
-                      <td className="px-6 py-4 text-center">
-                        <FrequencyBadge frequency={customer.avg_order_frequency} />
-                      </td>
+                        {/* Total Pending */}
+                        <td className="px-6 py-4 text-right">
+                          <span className="font-bold text-red-600">{formatCurrency(customer.totalPending)}</span>
+                        </td>
 
-                      {/* Total Orders */}
-                      <td className="px-6 py-4 text-center">
-                        <span className="text-sm font-medium text-gray-900">{customer.total_orders}</span>
-                      </td>
-
-                      {/* Total Spent */}
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-sm font-medium text-gray-900">
-                          ฿{customer.total_spent.toLocaleString('th-TH', { minimumFractionDigits: 0 })}
-                        </span>
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-center gap-2">
-                          {customer.line_user_id ? (
+                        {/* Actions */}
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            {customer.lineUserId ? (
+                              <button
+                                onClick={() => handleContactLine(customer.lineUserId!)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm font-medium transition-colors"
+                                title={`ทักใน LINE: ${customer.lineDisplayName}`}
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                ทัก LINE
+                              </button>
+                            ) : (
+                              <span className="text-gray-400 text-xs">ไม่มี LINE</span>
+                            )}
                             <button
-                              onClick={() => handleContactLine(customer.line_user_id!)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm font-medium transition-colors"
-                              title={`ทักใน LINE: ${customer.line_display_name}`}
+                              onClick={() => router.push(`/customers/${customer.customerId}`)}
+                              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                              title="ดูรายละเอียดลูกค้า"
                             >
-                              <MessageCircle className="w-3.5 h-3.5" />
-                              ทัก LINE
+                              <ExternalLink className="w-4 h-4" />
                             </button>
+                          </div>
+                        </td>
+
+                        {/* Expand */}
+                        <td className="px-6 py-4 text-center">
+                          {expandedRows.has(customer.customerId) ? (
+                            <ChevronDown className="w-5 h-5 text-gray-400" />
                           ) : (
-                            <button
-                              onClick={() => handleCreateOrder(customer.id)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#E9B308] text-[#00231F] rounded-lg hover:bg-[#d4a307] text-sm font-medium transition-colors"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              สร้างออเดอร์
-                            </button>
+                            <ChevronRight className="w-5 h-5 text-gray-400" />
                           )}
-                          <button
-                            onClick={() => router.push(`/customers/${customer.id}`)}
-                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-                            title="ดูรายละเอียด"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                      </tr>
+
+                      {/* Expanded Order Details */}
+                      {expandedRows.has(customer.customerId) && customer.orders.map((order) => (
+                        <tr
+                          key={order.id}
+                          className="bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                          onClick={() => router.push(`/orders/${order.id}`)}
+                        >
+                          <td className="px-6 py-3 pl-12">
+                            <div>
+                              <span className="text-sm font-medium text-gray-900">{order.orderNumber}</span>
+                              <div className="text-xs text-gray-500">สั่ง: {formatDate(order.orderDate)}</div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 text-center">
+                            <span className="text-sm text-gray-600">{order.daysAgo} วัน</span>
+                          </td>
+                          <td className="px-6 py-3 text-center">
+                            <OrderStatusBadge status={order.orderStatus} />
+                          </td>
+                          <td className="px-6 py-3">
+                            <div className="text-sm text-gray-600">
+                              ส่ง: {formatDate(order.deliveryDate)}
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 text-right">
+                            <span className="text-sm font-semibold text-gray-900">{formatCurrency(order.totalAmount)}</span>
+                          </td>
+                          <td colSpan={2} className="px-6 py-3 text-center">
+                            <ChevronRight className="w-4 h-4 text-gray-400 inline" />
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
                 </tbody>
+
+                {/* Total Footer */}
+                <tfoot className="bg-gray-100">
+                  <tr>
+                    <td colSpan={4} className="px-6 py-4 font-bold text-gray-900">
+                      รวมทั้งหมด ({summary?.totalOrders || 0} บิล จาก {summary?.totalCustomers || 0} ลูกค้า)
+                    </td>
+                    <td className="px-6 py-4 text-right font-bold text-red-600">
+                      {formatCurrency(summary?.totalPending || 0)}
+                    </td>
+                    <td colSpan={2}></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}

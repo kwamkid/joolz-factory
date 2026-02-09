@@ -14,6 +14,8 @@ interface CustomerData {
   province?: string;
   postal_code?: string;
   tax_id?: string;
+  tax_company_name?: string;
+  tax_branch?: string;
   customer_type: 'retail' | 'wholesale' | 'distributor';
   credit_limit?: number;
   credit_days?: number;
@@ -106,6 +108,8 @@ export async function POST(request: NextRequest) {
         province: customerData.province || null,
         postal_code: customerData.postal_code || null,
         tax_id: customerData.tax_id || null,
+        tax_company_name: customerData.tax_company_name || null,
+        tax_branch: customerData.tax_branch || null,
         customer_type_new: customerData.customer_type,
         credit_limit: customerData.credit_limit || 0,
         credit_days: customerData.credit_days || 0,

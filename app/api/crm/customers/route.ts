@@ -37,7 +37,7 @@ async function checkAuth(request: NextRequest): Promise<{ isAuth: boolean; userI
   }
 }
 
-// GET - Get customers with CRM data (last order, total orders, etc.)
+// GET - Get customers with CRM data (last order, total orders, LINE contact, etc.)
 export async function GET(request: NextRequest) {
   try {
     const { isAuth } = await checkAuth(request);
@@ -51,11 +51,15 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search');
-    const minDaysSinceOrder = searchParams.get('min_days'); // Filter: at least X days since last order
-    const maxDaysSinceOrder = searchParams.get('max_days'); // Filter: at most X days since last order
+    const minDaysSinceOrder = searchParams.get('min_days');
+    const maxDaysSinceOrder = searchParams.get('max_days');
     const hasOrders = searchParams.get('has_orders'); // 'true', 'false', or null (all)
-    const sortBy = searchParams.get('sort_by') || 'days_since_last_order'; // 'days_since_last_order', 'total_orders', 'total_spent', 'name'
+    const sortBy = searchParams.get('sort_by') || 'days_since_last_order';
     const sortOrder = searchParams.get('sort_order') || 'desc';
+
+    // Pagination
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = parseInt(searchParams.get('limit') || '20', 10);
 
     // Step 1: Get all active customers
     let customersQuery = supabaseAdmin
@@ -77,24 +81,51 @@ export async function GET(request: NextRequest) {
     }
 
     if (!customers || customers.length === 0) {
-      return NextResponse.json({ customers: [] });
+      return NextResponse.json({
+        customers: [],
+        summary: {
+          totalCustomers: 0,
+          customersWithOrders: 0,
+          customersNeverOrdered: 0,
+          customersWithLine: 0,
+          rangeCounts: {},
+          dayRanges: []
+        },
+        pagination: { page: 1, limit, total: 0, totalPages: 0 }
+      });
     }
 
-    // Step 2: Get order stats for all customers in one query
-    // Using raw SQL via RPC would be better, but we can use aggregation
+    // Step 2: Get order stats for all customers
     const customerIds = customers.map(c => c.id);
 
-    // Get last order and stats per customer
     const { data: orderStats, error: ordersError } = await supabaseAdmin
       .from('orders')
-      .select('customer_id, delivery_date, total_amount, order_status')
+      .select('customer_id, order_date, total_amount, order_status')
       .in('customer_id', customerIds)
       .neq('order_status', 'cancelled')
-      .order('delivery_date', { ascending: false });
+      .order('order_date', { ascending: false });
 
     if (ordersError) {
       console.error('Orders query error:', ordersError);
     }
+
+    // Step 3: Get LINE contacts for customers
+    const { data: lineContacts } = await supabaseAdmin
+      .from('line_contacts')
+      .select('customer_id, line_user_id, display_name')
+      .in('customer_id', customerIds)
+      .eq('status', 'active');
+
+    // Build LINE contact map
+    const lineContactMap = new Map<string, { line_user_id: string; display_name: string }>();
+    (lineContacts || []).forEach(lc => {
+      if (lc.customer_id) {
+        lineContactMap.set(lc.customer_id, {
+          line_user_id: lc.line_user_id,
+          display_name: lc.display_name
+        });
+      }
+    });
 
     // Build stats map per customer
     const customerStatsMap = new Map<string, {
@@ -103,7 +134,7 @@ export async function GET(request: NextRequest) {
       totalOrders: number;
       totalSpent: number;
       completedOrders: number;
-      orderDates: string[]; // For calculating frequency
+      orderDates: string[];
     }>();
 
     // Initialize all customers with empty stats
@@ -118,18 +149,16 @@ export async function GET(request: NextRequest) {
       });
     });
 
-    // Process orders (sorted desc by delivery_date)
+    // Process orders (sorted desc by order_date)
     (orderStats || []).forEach(order => {
       const stats = customerStatsMap.get(order.customer_id);
       if (stats) {
-        // First order in iteration = last order (since we sorted desc)
-        if (!stats.lastOrderDate && order.delivery_date) {
-          stats.lastOrderDate = order.delivery_date;
+        if (!stats.lastOrderDate && order.order_date) {
+          stats.lastOrderDate = order.order_date;
         }
-        // Track first order (will be overwritten to get the earliest)
-        if (order.delivery_date) {
-          stats.firstOrderDate = order.delivery_date;
-          stats.orderDates.push(order.delivery_date);
+        if (order.order_date) {
+          stats.firstOrderDate = order.order_date;
+          stats.orderDates.push(order.order_date);
         }
         stats.totalOrders++;
         stats.totalSpent += order.total_amount || 0;
@@ -139,14 +168,15 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Step 3: Calculate days since last order, frequency, and enrich customer data
+    // Step 4: Calculate days since last order and enrich customer data
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const enrichedCustomers = customers.map(customer => {
       const stats = customerStatsMap.get(customer.id)!;
+      const lineContact = lineContactMap.get(customer.id);
       let daysSinceLastOrder: number | null = null;
-      let avgOrderFrequency: number | null = null; // Average days between orders
+      let avgOrderFrequency: number | null = null;
 
       if (stats.lastOrderDate) {
         const lastDate = new Date(stats.lastOrderDate);
@@ -156,12 +186,10 @@ export async function GET(request: NextRequest) {
 
       // Calculate average order frequency (if has 2+ orders)
       if (stats.orderDates.length >= 2) {
-        // Sort dates ascending
         const sortedDates = stats.orderDates
           .map(d => new Date(d).getTime())
           .sort((a, b) => a - b);
 
-        // Calculate average gap between consecutive orders
         let totalGap = 0;
         for (let i = 1; i < sortedDates.length; i++) {
           totalGap += (sortedDates[i] - sortedDates[i - 1]) / (1000 * 60 * 60 * 24);
@@ -174,14 +202,17 @@ export async function GET(request: NextRequest) {
         customer_type: customer.customer_type_new,
         last_order_date: stats.lastOrderDate,
         days_since_last_order: daysSinceLastOrder,
-        avg_order_frequency: avgOrderFrequency, // New: average days between orders
+        avg_order_frequency: avgOrderFrequency,
         total_orders: stats.totalOrders,
         total_spent: stats.totalSpent,
-        completed_orders: stats.completedOrders
+        completed_orders: stats.completedOrders,
+        // LINE contact info
+        line_user_id: lineContact?.line_user_id || null,
+        line_display_name: lineContact?.display_name || null
       };
     });
 
-    // Step 4: Apply CRM filters
+    // Step 5: Apply CRM filters
     let filteredCustomers = enrichedCustomers;
 
     // Filter by has_orders
@@ -206,13 +237,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Step 5: Sort
+    // Step 6: Sort
     filteredCustomers.sort((a, b) => {
       let comparison = 0;
 
       switch (sortBy) {
         case 'days_since_last_order':
-          // Null (never ordered) should be at the end for desc, beginning for asc
           if (a.days_since_last_order === null && b.days_since_last_order === null) comparison = 0;
           else if (a.days_since_last_order === null) comparison = 1;
           else if (b.days_since_last_order === null) comparison = -1;
@@ -239,6 +269,13 @@ export async function GET(request: NextRequest) {
 
       return sortOrder === 'desc' ? -comparison : comparison;
     });
+
+    // Get total before pagination
+    const totalFiltered = filteredCustomers.length;
+
+    // Step 7: Apply pagination
+    const startIndex = (page - 1) * limit;
+    const paginatedCustomers = filteredCustomers.slice(startIndex, startIndex + limit);
 
     // Fetch day ranges from CRM settings
     interface DayRange {
@@ -269,7 +306,7 @@ export async function GET(request: NextRequest) {
       // Use defaults if settings table doesn't exist
     }
 
-    // Calculate dynamic summary based on configured day ranges (using minDays-maxDays)
+    // Calculate dynamic summary based on configured day ranges
     const rangeCounts: Record<string, number> = {};
     dayRanges.forEach(range => {
       const key = `${range.minDays}-${range.maxDays ?? 'null'}`;
@@ -286,13 +323,20 @@ export async function GET(request: NextRequest) {
       totalCustomers: enrichedCustomers.length,
       customersWithOrders: enrichedCustomers.filter(c => c.total_orders > 0).length,
       customersNeverOrdered: enrichedCustomers.filter(c => c.total_orders === 0).length,
-      rangeCounts, // Dynamic counts based on settings (key: "minDays-maxDays")
-      dayRanges // Include configured ranges for frontend
+      customersWithLine: enrichedCustomers.filter(c => c.line_user_id).length,
+      rangeCounts,
+      dayRanges
     };
 
     return NextResponse.json({
-      customers: filteredCustomers,
-      summary
+      customers: paginatedCustomers,
+      summary,
+      pagination: {
+        page,
+        limit,
+        total: totalFiltered,
+        totalPages: Math.ceil(totalFiltered / limit)
+      }
     });
   } catch (error) {
     console.error('Server error:', error);

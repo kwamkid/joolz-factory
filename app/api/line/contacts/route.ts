@@ -62,7 +62,27 @@ export async function GET(request: NextRequest) {
       .from('line_contacts')
       .select(`
         *,
-        customer:customers(id, name, customer_code)
+        customer:customers(
+          id,
+          name,
+          customer_code,
+          contact_person,
+          phone,
+          email,
+          customer_type_new,
+          address,
+          district,
+          amphoe,
+          province,
+          postal_code,
+          tax_id,
+          tax_company_name,
+          tax_branch,
+          credit_limit,
+          credit_days,
+          notes,
+          is_active
+        )
       `)
       .eq('status', 'active')
       .order('last_message_at', { ascending: false, nullsFirst: false });
@@ -95,19 +115,21 @@ export async function GET(request: NextRequest) {
         .map(c => c.customer_id);
 
       if (customerIds.length > 0) {
-        // Get last order date for each customer
-        const { data: lastOrders } = await supabaseAdmin
+        // Get all orders for each customer (for avg frequency calculation)
+        const { data: allOrders } = await supabaseAdmin
           .from('orders')
           .select('customer_id, order_date')
           .in('customer_id', customerIds)
+          .neq('order_status', 'cancelled')
           .order('order_date', { ascending: false });
 
-        // Build map of customer_id -> last_order_date
-        const lastOrderMap = new Map<string, string>();
-        (lastOrders || []).forEach(order => {
-          if (!lastOrderMap.has(order.customer_id)) {
-            lastOrderMap.set(order.customer_id, order.order_date);
+        // Build map of customer_id -> { lastOrderDate, orderDates[] }
+        const customerOrderMap = new Map<string, { lastOrderDate: string; orderDates: string[] }>();
+        (allOrders || []).forEach(order => {
+          if (!customerOrderMap.has(order.customer_id)) {
+            customerOrderMap.set(order.customer_id, { lastOrderDate: order.order_date, orderDates: [] });
           }
+          customerOrderMap.get(order.customer_id)!.orderDates.push(order.order_date);
         });
 
         // Calculate cutoff dates for range
@@ -129,7 +151,8 @@ export async function GET(request: NextRequest) {
         // Show customers whose last order is between minDays and maxDays ago
         filteredContacts = filteredContacts.filter(c => {
           if (!c.customer_id) return false;
-          const lastOrder = lastOrderMap.get(c.customer_id);
+          const orderData = customerOrderMap.get(c.customer_id);
+          const lastOrder = orderData?.lastOrderDate;
 
           // No orders = include if we want 60+ days (no max)
           if (!lastOrder) {
@@ -145,11 +168,30 @@ export async function GET(request: NextRequest) {
           return true;
         });
 
-        // Add last_order_date to contacts
-        filteredContacts = filteredContacts.map(c => ({
-          ...c,
-          last_order_date: lastOrderMap.get(c.customer_id) || null
-        }));
+        // Add last_order_date and avg_order_frequency to contacts
+        filteredContacts = filteredContacts.map(c => {
+          const orderData = c.customer_id ? customerOrderMap.get(c.customer_id) : null;
+          let avgOrderFrequency: number | null = null;
+
+          // Calculate average order frequency (if has 2+ orders)
+          if (orderData && orderData.orderDates.length >= 2) {
+            const sortedDates = orderData.orderDates
+              .map(d => new Date(d).getTime())
+              .sort((a, b) => a - b);
+
+            let totalGap = 0;
+            for (let i = 1; i < sortedDates.length; i++) {
+              totalGap += (sortedDates[i] - sortedDates[i - 1]) / (1000 * 60 * 60 * 24);
+            }
+            avgOrderFrequency = Math.round(totalGap / (sortedDates.length - 1));
+          }
+
+          return {
+            ...c,
+            last_order_date: orderData?.lastOrderDate || null,
+            avg_order_frequency: avgOrderFrequency
+          };
+        });
       } else {
         filteredContacts = [];
       }
@@ -164,19 +206,86 @@ export async function GET(request: NextRequest) {
           .from('orders')
           .select('customer_id, order_date')
           .in('customer_id', customerIds)
+          .neq('order_status', 'cancelled')
           .order('order_date', { ascending: false });
 
-        const lastOrderMap = new Map<string, string>();
+        // Build map of customer_id -> { lastOrderDate, orderDates[] }
+        const customerOrderMap = new Map<string, { lastOrderDate: string; orderDates: string[] }>();
         (lastOrders || []).forEach(order => {
-          if (!lastOrderMap.has(order.customer_id)) {
-            lastOrderMap.set(order.customer_id, order.order_date);
+          if (!customerOrderMap.has(order.customer_id)) {
+            customerOrderMap.set(order.customer_id, { lastOrderDate: order.order_date, orderDates: [] });
           }
+          customerOrderMap.get(order.customer_id)!.orderDates.push(order.order_date);
         });
 
-        filteredContacts = filteredContacts.map(c => ({
-          ...c,
-          last_order_date: c.customer_id ? lastOrderMap.get(c.customer_id) || null : null
-        }));
+        filteredContacts = filteredContacts.map(c => {
+          const orderData = c.customer_id ? customerOrderMap.get(c.customer_id) : null;
+          let avgOrderFrequency: number | null = null;
+
+          // Calculate average order frequency (if has 2+ orders)
+          if (orderData && orderData.orderDates.length >= 2) {
+            const sortedDates = orderData.orderDates
+              .map(d => new Date(d).getTime())
+              .sort((a, b) => a - b);
+
+            let totalGap = 0;
+            for (let i = 1; i < sortedDates.length; i++) {
+              totalGap += (sortedDates[i] - sortedDates[i - 1]) / (1000 * 60 * 60 * 24);
+            }
+            avgOrderFrequency = Math.round(totalGap / (sortedDates.length - 1));
+          }
+
+          return {
+            ...c,
+            last_order_date: orderData?.lastOrderDate || null,
+            avg_order_frequency: avgOrderFrequency
+          };
+        });
+      }
+    } else {
+      // For non-linkedOnly, still add order stats for linked contacts
+      const customerIds = filteredContacts
+        .filter(c => c.customer_id)
+        .map(c => c.customer_id);
+
+      if (customerIds.length > 0) {
+        const { data: orders } = await supabaseAdmin
+          .from('orders')
+          .select('customer_id, order_date')
+          .in('customer_id', customerIds)
+          .neq('order_status', 'cancelled')
+          .order('order_date', { ascending: false });
+
+        const customerOrderMap = new Map<string, { lastOrderDate: string; orderDates: string[] }>();
+        (orders || []).forEach(order => {
+          if (!customerOrderMap.has(order.customer_id)) {
+            customerOrderMap.set(order.customer_id, { lastOrderDate: order.order_date, orderDates: [] });
+          }
+          customerOrderMap.get(order.customer_id)!.orderDates.push(order.order_date);
+        });
+
+        filteredContacts = filteredContacts.map(c => {
+          const orderData = c.customer_id ? customerOrderMap.get(c.customer_id) : null;
+          let avgOrderFrequency: number | null = null;
+
+          if (orderData && orderData.orderDates.length >= 2) {
+            const sortedDates = orderData.orderDates
+              .map(d => new Date(d).getTime())
+              .sort((a, b) => a - b);
+
+            let totalGap = 0;
+            for (let i = 1; i < sortedDates.length; i++) {
+              totalGap += (sortedDates[i] - sortedDates[i - 1]) / (1000 * 60 * 60 * 24);
+            }
+            avgOrderFrequency = Math.round(totalGap / (sortedDates.length - 1));
+          }
+
+          return {
+            ...c,
+            last_order_date: orderData?.lastOrderDate || null,
+            avg_order_frequency: avgOrderFrequency
+          };
+        });
       }
     }
 

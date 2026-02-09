@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
+import CustomerForm, { CustomerFormData } from '@/components/customers/CustomerForm';
 
 // Customer interface
 interface Customer {
@@ -86,25 +87,6 @@ function CustomerTypeBadge({ type }: { type: string }) {
   );
 }
 
-// Form data interface
-interface CustomerFormData {
-  name: string;
-  contact_person: string;
-  phone: string;
-  email: string;
-  address: string;
-  district: string;
-  amphoe: string;
-  province: string;
-  postal_code: string;
-  tax_id: string;
-  customer_type: 'retail' | 'wholesale' | 'distributor';
-  credit_limit: number;
-  credit_days: number;
-  is_active: boolean;
-  notes: string;
-}
-
 export default function CustomersPage() {
   const { userProfile, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -126,24 +108,8 @@ export default function CustomersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(20);
 
-  // Form state
-  const [formData, setFormData] = useState<CustomerFormData>({
-    name: '',
-    contact_person: '',
-    phone: '',
-    email: '',
-    address: '',
-    district: '',
-    amphoe: '',
-    province: '',
-    postal_code: '',
-    tax_id: '',
-    customer_type: 'retail',
-    credit_limit: 0,
-    credit_days: 0,
-    is_active: true,
-    notes: ''
-  });
+  // Form error for CustomerForm
+  const [formError, setFormError] = useState('');
 
   // Fetch customers function - optimized with single API call
   const fetchCustomers = useCallback(async () => {
@@ -216,38 +182,151 @@ export default function CustomersPage() {
     setCurrentPage(1);
   }, [searchTerm]);
 
-  // Handle create/update customer
-  const handleSaveCustomer = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  // Handle create new customer (from CustomerForm component)
+  const handleCreateCustomer = async (data: CustomerFormData) => {
     setSaving(true);
-    setError('');
-    setSuccess('');
-
-    // Validation
-    if (!formData.name.trim()) {
-      setError('กรุณากรอกชื่อลูกค้า');
-      setSaving(false);
-      return;
-    }
+    setFormError('');
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        setError('กรุณาเข้าสู่ระบบใหม่');
-        setSaving(false);
-        return;
+        throw new Error('กรุณาเข้าสู่ระบบใหม่');
       }
 
-      const url = editingCustomer
-        ? '/api/customers'
-        : '/api/customers';
+      // Determine billing address (use shipping if same_as_shipping is checked)
+      const billingAddress = data.billing_same_as_shipping ? data.shipping_address : data.billing_address;
+      const billingDistrict = data.billing_same_as_shipping ? data.shipping_district : data.billing_district;
+      const billingAmphoe = data.billing_same_as_shipping ? data.shipping_amphoe : data.billing_amphoe;
+      const billingProvince = data.billing_same_as_shipping ? data.shipping_province : data.billing_province;
+      const billingPostalCode = data.billing_same_as_shipping ? data.shipping_postal_code : data.billing_postal_code;
 
-      const payload = editingCustomer
-        ? { id: editingCustomer.id, ...formData }
-        : formData;
+      // 1. Create customer with billing address and tax info
+      const customerPayload = {
+        name: data.name,
+        contact_person: data.contact_person,
+        phone: data.phone,
+        email: data.email,
+        customer_type: data.customer_type,
+        credit_limit: data.credit_limit,
+        credit_days: data.credit_days,
+        is_active: data.is_active,
+        notes: data.notes,
+        // Tax invoice info (if needed)
+        tax_id: data.needs_tax_invoice ? data.tax_id : '',
+        tax_company_name: data.needs_tax_invoice ? data.tax_company_name : '',
+        tax_branch: data.needs_tax_invoice ? data.tax_branch : '',
+        // Billing address fields
+        address: billingAddress,
+        district: billingDistrict,
+        amphoe: billingAmphoe,
+        province: billingProvince,
+        postal_code: billingPostalCode
+      };
 
-      const response = await fetch(url, {
-        method: editingCustomer ? 'PUT' : 'POST',
+      const createResponse = await fetch('/api/customers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(customerPayload)
+      });
+
+      if (!createResponse.ok) {
+        const error = await createResponse.json();
+        throw new Error(error.error || 'Failed to create customer');
+      }
+
+      const newCustomer = await createResponse.json();
+
+      // 2. Create shipping address if provided
+      if (data.shipping_address || data.shipping_province) {
+        const shippingPayload = {
+          customer_id: newCustomer.id,
+          address_name: data.shipping_address_name || 'สาขาหลัก',
+          contact_person: data.shipping_contact_person || data.contact_person,
+          phone: data.shipping_phone || data.phone,
+          address_line1: data.shipping_address,
+          district: data.shipping_district,
+          amphoe: data.shipping_amphoe,
+          province: data.shipping_province,
+          postal_code: data.shipping_postal_code,
+          google_maps_link: data.shipping_google_maps_link,
+          delivery_notes: data.shipping_delivery_notes,
+          is_default: true
+        };
+
+        await fetch('/api/shipping-addresses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify(shippingPayload)
+        });
+      }
+
+      setSuccess('สร้างลูกค้าสำเร็จ');
+      setShowModal(false);
+      setDataFetched(false);
+      setTimeout(() => {
+        setSuccess('');
+        fetchCustomers();
+      }, 1500);
+    } catch (error) {
+      console.error('Error creating customer:', error);
+      setFormError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+      throw error;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Handle update existing customer (from CustomerForm component)
+  const handleUpdateCustomer = async (data: CustomerFormData) => {
+    if (!editingCustomer) return;
+
+    setSaving(true);
+    setFormError('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('กรุณาเข้าสู่ระบบใหม่');
+      }
+
+      // Determine billing address (use shipping if same_as_shipping is checked)
+      const billingAddress = data.billing_same_as_shipping ? data.shipping_address : data.billing_address;
+      const billingDistrict = data.billing_same_as_shipping ? data.shipping_district : data.billing_district;
+      const billingAmphoe = data.billing_same_as_shipping ? data.shipping_amphoe : data.billing_amphoe;
+      const billingProvince = data.billing_same_as_shipping ? data.shipping_province : data.billing_province;
+      const billingPostalCode = data.billing_same_as_shipping ? data.shipping_postal_code : data.billing_postal_code;
+
+      const payload = {
+        id: editingCustomer.id,
+        name: data.name,
+        contact_person: data.contact_person,
+        phone: data.phone,
+        email: data.email,
+        customer_type: data.customer_type,
+        credit_limit: data.credit_limit,
+        credit_days: data.credit_days,
+        is_active: data.is_active,
+        notes: data.notes,
+        // Tax invoice info (if needed)
+        tax_id: data.needs_tax_invoice ? data.tax_id : '',
+        tax_company_name: data.needs_tax_invoice ? data.tax_company_name : '',
+        tax_branch: data.needs_tax_invoice ? data.tax_branch : '',
+        // Billing address fields
+        address: billingAddress,
+        district: billingDistrict,
+        amphoe: billingAmphoe,
+        province: billingProvince,
+        postal_code: billingPostalCode
+      };
+
+      const response = await fetch('/api/customers', {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`
@@ -261,7 +340,7 @@ export default function CustomersPage() {
         throw new Error(result.error || 'เกิดข้อผิดพลาด');
       }
 
-      setSuccess(editingCustomer ? 'อัพเดทลูกค้าสำเร็จ' : 'สร้างลูกค้าสำเร็จ');
+      setSuccess('อัพเดทลูกค้าสำเร็จ');
       setShowModal(false);
       setDataFetched(false);
       setTimeout(() => {
@@ -269,11 +348,11 @@ export default function CustomersPage() {
         fetchCustomers();
       }, 1500);
 
-      // Reset form
       resetForm();
     } catch (error) {
-      console.error('Error saving customer:', error);
-      setError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+      console.error('Error updating customer:', error);
+      setFormError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+      throw error;
     } finally {
       setSaving(false);
     }
@@ -281,24 +360,8 @@ export default function CustomersPage() {
 
   // Reset form
   const resetForm = () => {
-    setFormData({
-      name: '',
-      contact_person: '',
-      phone: '',
-      email: '',
-      address: '',
-      district: '',
-      amphoe: '',
-      province: '',
-      postal_code: '',
-      tax_id: '',
-      customer_type: 'retail',
-      credit_limit: 0,
-      credit_days: 0,
-      is_active: true,
-      notes: ''
-    });
     setEditingCustomer(null);
+    setFormError('');
   };
 
   // Handle open modal
@@ -625,259 +688,87 @@ export default function CustomersPage() {
           </div>
         )}
 
-        {/* Modal */}
-        {showModal && (
+        {/* Modal - New Customer */}
+        {showModal && !editingCustomer && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto relative">
               <div className="p-6">
-                <h2 className="text-2xl font-bold mb-6">
-                  {editingCustomer ? 'แก้ไขลูกค้า' : 'เพิ่มลูกค้าใหม่'}
-                </h2>
+                <h2 className="text-2xl font-bold mb-6">เพิ่มลูกค้าใหม่</h2>
                 <button
-                  onClick={() => setShowModal(false)}
+                  onClick={() => {
+                    setShowModal(false);
+                    setFormError('');
+                  }}
                   className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
                   type="button"
                 >
                   <X className="w-6 h-6" />
                 </button>
 
-                <form onSubmit={handleSaveCustomer}>
-                  {/* Basic Information */}
-                  <div className="mb-6">
-                    <h3 className="text-lg font-semibold mb-3 text-gray-700">ข้อมูลพื้นฐาน</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          ชื่อลูกค้า <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.name}
-                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                          required
-                        />
-                      </div>
+                <CustomerForm
+                  onSubmit={handleCreateCustomer}
+                  onCancel={() => {
+                    setShowModal(false);
+                    setFormError('');
+                  }}
+                  isLoading={saving}
+                  error={formError}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          ประเภทลูกค้า
-                        </label>
-                        <select
-                          value={formData.customer_type}
-                          onChange={(e) => setFormData({ ...formData, customer_type: e.target.value as any })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                        >
-                          <option value="retail">ขายปลีก</option>
-                          <option value="wholesale">ขายส่ง</option>
-                          <option value="distributor">ตัวแทนจำหน่าย</option>
-                        </select>
-                      </div>
+        {/* Modal - Edit Customer */}
+        {showModal && editingCustomer && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto relative">
+              <div className="p-6">
+                <h2 className="text-2xl font-bold mb-6">แก้ไขลูกค้า</h2>
+                <button
+                  onClick={() => {
+                    setShowModal(false);
+                    setFormError('');
+                    resetForm();
+                  }}
+                  className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+                  type="button"
+                >
+                  <X className="w-6 h-6" />
+                </button>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          ผู้ติดต่อ
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.contact_person}
-                          onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          เบอร์โทร
-                        </label>
-                        <input
-                          type="tel"
-                          value={formData.phone}
-                          onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          อีเมล
-                        </label>
-                        <input
-                          type="email"
-                          value={formData.email}
-                          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          เลขประจำตัวผู้เสียภาษี
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.tax_id}
-                          onChange={(e) => setFormData({ ...formData, tax_id: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Address */}
-                  <div className="mb-6">
-                    <h3 className="text-lg font-semibold mb-3 text-gray-700">ที่อยู่</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          ที่อยู่
-                        </label>
-                        <textarea
-                          value={formData.address}
-                          onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                          rows={2}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          ตำบล/แขวง
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.district}
-                          onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          อำเภอ/เขต
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.amphoe}
-                          onChange={(e) => setFormData({ ...formData, amphoe: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          จังหวัด
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.province}
-                          onChange={(e) => setFormData({ ...formData, province: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          รหัสไปรษณีย์
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.postal_code}
-                          onChange={(e) => setFormData({ ...formData, postal_code: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Credit Terms */}
-                  <div className="mb-6">
-                    <h3 className="text-lg font-semibold mb-3 text-gray-700">เงื่อนไขเครดิต</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          วงเงินเครดิต (บาท)
-                        </label>
-                        <input
-                          type="number"
-                          value={formData.credit_limit}
-                          onChange={(e) => setFormData({ ...formData, credit_limit: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                          min="0"
-                          step="0.01"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          ระยะเวลาเครดิต (วัน)
-                        </label>
-                        <input
-                          type="number"
-                          value={formData.credit_days}
-                          onChange={(e) => setFormData({ ...formData, credit_days: parseInt(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                          min="0"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Notes */}
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      หมายเหตุ
-                    </label>
-                    <textarea
-                      value={formData.notes}
-                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                      rows={3}
-                    />
-                  </div>
-
-                  {/* Status */}
-                  <div className="mb-6">
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={formData.is_active}
-                        onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                        className="mr-2"
-                      />
-                      <span className="text-sm font-medium text-gray-700">ใช้งาน</span>
-                    </label>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowModal(false);
-                        resetForm();
-                      }}
-                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                      disabled={saving}
-                    >
-                      ยกเลิก
-                    </button>
-                    <button
-                      type="submit"
-                      className="bg-[#E9B308] text-[#00231F] px-4 py-2 rounded-lg hover:bg-[#d4a307] disabled:opacity-50 flex items-center"
-                      disabled={saving}
-                    >
-                      {saving ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          กำลังบันทึก...
-                        </>
-                      ) : (
-                        'บันทึก'
-                      )}
-                    </button>
-                  </div>
-                </form>
+                <CustomerForm
+                  initialData={{
+                    name: editingCustomer.name || '',
+                    contact_person: editingCustomer.contact_person || '',
+                    phone: editingCustomer.phone || '',
+                    email: editingCustomer.email || '',
+                    customer_type: editingCustomer.customer_type || 'retail',
+                    credit_limit: editingCustomer.credit_limit || 0,
+                    credit_days: editingCustomer.credit_days || 0,
+                    is_active: editingCustomer.is_active,
+                    notes: editingCustomer.notes || '',
+                    // Tax info
+                    needs_tax_invoice: !!(editingCustomer.tax_id),
+                    tax_id: editingCustomer.tax_id || '',
+                    // Billing address (from customer record)
+                    billing_address: editingCustomer.address || '',
+                    billing_district: editingCustomer.district || '',
+                    billing_amphoe: editingCustomer.amphoe || '',
+                    billing_province: editingCustomer.province || '',
+                    billing_postal_code: editingCustomer.postal_code || '',
+                    billing_same_as_shipping: false
+                  }}
+                  onSubmit={handleUpdateCustomer}
+                  onCancel={() => {
+                    setShowModal(false);
+                    setFormError('');
+                    resetForm();
+                  }}
+                  isEditing={true}
+                  isLoading={saving}
+                  error={formError}
+                />
               </div>
             </div>
           </div>
