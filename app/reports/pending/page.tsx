@@ -344,32 +344,32 @@ export default function PendingReportPage() {
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="data-table-wrap">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="data-table-fixed">
+              <thead className="data-thead">
                 <tr>
                   {groupBy === 'customer' ? (
                     <>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ลูกค้า</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">ติดต่อ</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">จำนวนออเดอร์</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">ยอดค้างรวม</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase w-10"></th>
+                      <th className="data-th">ลูกค้า</th>
+                      <th className="data-th text-center">ติดต่อ</th>
+                      <th className="data-th text-center">จำนวนออเดอร์</th>
+                      <th className="data-th text-right">ยอดค้างรวม</th>
+                      <th className="data-th text-center w-10"></th>
                     </>
                   ) : (
                     <>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ออเดอร์</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ลูกค้า</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">วันที่ส่ง</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">ค้างมา</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">สถานะ</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">ยอดค้าง</th>
+                      <th className="data-th">ออเดอร์</th>
+                      <th className="data-th">ลูกค้า</th>
+                      <th className="data-th text-center">วันที่ส่ง</th>
+                      <th className="data-th text-center">ค้างมา</th>
+                      <th className="data-th text-center">สถานะ</th>
+                      <th className="data-th text-right">ยอดค้าง</th>
                     </>
                   )}
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="data-tbody">
                 {groupBy === 'customer' && groupedData.map((item: GroupedDataByCustomer, index: number) => (
                   <Fragment key={item.customerId || `customer-${index}`}>
                     <tr
@@ -481,7 +481,7 @@ export default function PendingReportPage() {
               </tbody>
 
               {/* Total Footer */}
-              <tfoot className="bg-gray-100">
+              <tfoot className="data-tfoot">
                 <tr>
                   <td colSpan={groupBy === 'customer' ? 3 : 5} className="px-6 py-4 font-bold text-gray-900">
                     รวมทั้งหมด ({summary?.totalOrders || 0} รายการ)

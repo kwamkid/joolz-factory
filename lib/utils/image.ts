@@ -27,6 +27,11 @@
 export function getImageUrl(url?: string | null): string {
   if (!url) return '';
 
+  // Supabase Storage URL - ใช้ตรงๆ ไม่ต้องผ่าน proxy
+  if (url.includes('supabase.co/storage')) {
+    return url;
+  }
+
   // ถ้าไม่ใช่ Google Drive link ให้ return ตามเดิม
   if (!url.includes('drive.google.com')) {
     return url;

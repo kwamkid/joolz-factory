@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
       .select(`
         id,
         order_id,
-        sellable_product_id,
+        product_id,
         product_code,
         product_name,
         bottle_size,
@@ -128,19 +128,19 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Step 2b: Fetch product images from sellable_products
-    const sellableProductIds = [...new Set(orderItems?.map(i => i.sellable_product_id).filter(Boolean))];
-    const sellableProductImageMap = new Map<string, string>();
+    // Step 2b: Fetch product images from products
+    const productIds = [...new Set(orderItems?.map(i => i.product_id).filter(Boolean))];
+    const productImageMap = new Map<string, string>();
 
-    if (sellableProductIds.length > 0) {
-      const { data: sellableProducts } = await supabaseAdmin
-        .from('sellable_products')
+    if (productIds.length > 0) {
+      const { data: productsData } = await supabaseAdmin
+        .from('products')
         .select('id, image')
-        .in('id', sellableProductIds);
+        .in('id', productIds);
 
-      sellableProducts?.forEach(sp => {
-        if (sp.image) {
-          sellableProductImageMap.set(sp.id, sp.image);
+      productsData?.forEach(p => {
+        if (p.image) {
+          productImageMap.set(p.id, p.image);
         }
       });
     }
@@ -262,7 +262,7 @@ export async function GET(request: NextRequest) {
 
       // Add product (merge quantities if same product+bottle in same delivery)
       const productKey = `${orderItem.product_code}__${orderItem.bottle_size || ''}`;
-      const productImage = sellableProductImageMap.get(orderItem.sellable_product_id) || null;
+      const productImage = productImageMap.get(orderItem.product_id) || null;
       if (!delivery.products.has(productKey)) {
         delivery.products.set(productKey, {
           productName: orderItem.product_name,

@@ -7,11 +7,6 @@ import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import {
-  Package,
-  AlertTriangle,
-  Factory,
-  Wine,
-  Leaf,
   Truck,
   Phone,
   LucideIcon,
@@ -22,33 +17,6 @@ import {
 type StatColor = 'blue' | 'green' | 'yellow' | 'red';
 
 // Interfaces
-interface ProductionBatch {
-  id: string;
-  batchNumber: string;
-  productName: string;
-  status: string;
-  quantity: number;
-  createdAt: string;
-}
-
-interface LowStockItem {
-  id: string;
-  name: string;
-  currentStock: number;
-  minStock: number;
-  unit: string;
-  shortage: number;
-}
-
-interface LowStockBottle {
-  id: string;
-  size: string;
-  capacityMl: number;
-  currentStock: number;
-  minStock: number;
-  shortage: number;
-}
-
 interface DeliveryOrder {
   id: string;
   orderNumber: string;
@@ -63,18 +31,6 @@ interface DeliveryOrder {
 }
 
 interface DashboardStats {
-  todayProduction: {
-    count: number;
-    batches: ProductionBatch[];
-  };
-  lowStockMaterials: {
-    count: number;
-    items: LowStockItem[];
-  };
-  lowStockBottles: {
-    count: number;
-    items: LowStockBottle[];
-  };
   todayDeliveries: {
     count: number;
     orders: DeliveryOrder[];
@@ -192,12 +148,11 @@ export default function DashboardPage() {
       {/* Welcome Message */}
       <div className="mb-6">
         <h2 className="text-xl text-gray-700">
-          สวัสดี, {userProfile.name || 'ผู้ใช้งาน'} 👋
+          สวัสดี, {userProfile.name || 'ผู้ใช้งาน'}
         </h2>
         <p className="text-gray-500">
           {userProfile.role === 'admin' && 'ภาพรวมระบบทั้งหมด'}
-          {userProfile.role === 'manager' && 'ภาพรวมการผลิตและสต็อก'}
-          {userProfile.role === 'operation' && 'งานผลิตประจำวัน'}
+          {userProfile.role === 'manager' && 'ภาพรวมระบบ'}
           {userProfile.role === 'sales' && 'ภาพรวมการขายและลูกค้า'}
         </p>
       </div>
@@ -210,69 +165,17 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-        <StatCard
-          title="การผลิตวันนี้"
-          value={`${stats?.todayProduction.count || 0} รายการ`}
-          icon={Factory}
-          color="blue"
-        />
-        <StatCard
-          title="วัตถุดิบใกล้หมด"
-          value={`${stats?.lowStockMaterials.count || 0} รายการ`}
-          icon={Leaf}
-          color={stats && stats.lowStockMaterials.count > 0 ? 'yellow' : 'green'}
-        />
-        <StatCard
-          title="ขวดใกล้หมด"
-          value={`${stats?.lowStockBottles.count || 0} รายการ`}
-          icon={Wine}
-          color={stats && stats.lowStockBottles.count > 0 ? 'yellow' : 'green'}
-        />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <StatCard
           title="ส่งของวันนี้"
-          value={`${stats?.todayDeliveries.count || 0} ออเดอร์`}
+          value={`${stats?.todayDeliveries?.count || 0} ออเดอร์`}
           icon={Truck}
           color="blue"
         />
       </div>
 
       {/* Main Content Area */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Today's Production */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">
-              การผลิตวันนี้
-            </h3>
-            <Link
-              href="/production"
-              className="text-[#E9B308] hover:text-[#d4a307] text-sm font-medium flex items-center"
-            >
-              ดูทั้งหมด
-              <ChevronRight className="w-4 h-4 ml-1" />
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {stats?.todayProduction.batches && stats.todayProduction.batches.length > 0 ? (
-              stats.todayProduction.batches.slice(0, 5).map((batch) => (
-                <div key={batch.id} className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">{batch.batchNumber}</p>
-                    <p className="text-xs text-gray-600">{batch.productName} - {batch.quantity} ขวด</p>
-                    <p className="text-xs text-gray-500">
-                      สถานะ: {batch.status === 'completed' ? 'เสร็จสิ้น' : batch.status === 'in_progress' ? 'กำลังผลิต' : 'วางแผน'}
-                    </p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-gray-500 text-sm text-center py-4">ยังไม่มีการผลิตวันนี้</p>
-            )}
-          </div>
-        </div>
-
+      <div className="grid grid-cols-1 gap-6">
         {/* Today's Deliveries */}
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
@@ -288,7 +191,7 @@ export default function DashboardPage() {
             </Link>
           </div>
           <div className="space-y-3">
-            {stats?.todayDeliveries.orders && stats.todayDeliveries.orders.length > 0 ? (
+            {stats?.todayDeliveries?.orders && stats.todayDeliveries.orders.length > 0 ? (
               stats.todayDeliveries.orders.slice(0, 5).map((order) => (
                 <Link
                   key={order.id}
@@ -315,78 +218,6 @@ export default function DashboardPage() {
               ))
             ) : (
               <p className="text-gray-500 text-sm text-center py-4">ไม่มีการส่งของวันนี้</p>
-            )}
-          </div>
-        </div>
-
-        {/* Low Stock Materials */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-              <Leaf className="w-5 h-5 mr-2 text-yellow-500" />
-              วัตถุดิบใกล้หมด
-            </h3>
-            <Link
-              href="/stock"
-              className="text-[#E9B308] hover:text-[#d4a307] text-sm font-medium flex items-center"
-            >
-              จัดการ
-              <ChevronRight className="w-4 h-4 ml-1" />
-            </Link>
-          </div>
-          <div className="space-y-2">
-            {stats?.lowStockMaterials.items && stats.lowStockMaterials.items.length > 0 ? (
-              stats.lowStockMaterials.items.slice(0, 5).map((item) => (
-                <div key={item.id} className="flex items-center justify-between p-2 bg-yellow-50 rounded">
-                  <div className="flex items-center space-x-3">
-                    <AlertTriangle className="w-4 h-4 text-yellow-500" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{item.name}</p>
-                      <p className="text-xs text-gray-600">
-                        คงเหลือ: {item.currentStock} {item.unit} (ต่ำกว่า {item.minStock} {item.unit})
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-gray-500 text-sm text-center py-4">วัตถุดิบเพียงพอทั้งหมด</p>
-            )}
-          </div>
-        </div>
-
-        {/* Low Stock Bottles */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-              <Wine className="w-5 h-5 mr-2 text-yellow-500" />
-              ขวดใกล้หมด
-            </h3>
-            <Link
-              href="/bottle-stock"
-              className="text-[#E9B308] hover:text-[#d4a307] text-sm font-medium flex items-center"
-            >
-              จัดการ
-              <ChevronRight className="w-4 h-4 ml-1" />
-            </Link>
-          </div>
-          <div className="space-y-2">
-            {stats?.lowStockBottles.items && stats.lowStockBottles.items.length > 0 ? (
-              stats.lowStockBottles.items.slice(0, 5).map((item) => (
-                <div key={item.id} className="flex items-center justify-between p-2 bg-yellow-50 rounded">
-                  <div className="flex items-center space-x-3">
-                    <AlertTriangle className="w-4 h-4 text-yellow-500" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{item.size}</p>
-                      <p className="text-xs text-gray-600">
-                        คงเหลือ: {item.currentStock} ขวด (ต่ำกว่า {item.minStock} ขวด)
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-gray-500 text-sm text-center py-4">ขวดเพียงพอทั้งหมด</p>
             )}
           </div>
         </div>

@@ -18,7 +18,9 @@ import {
   MessageCircle,
   Eye,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight
 } from 'lucide-react';
 import CustomerForm, { CustomerFormData } from '@/components/customers/CustomerForm';
 
@@ -409,9 +411,9 @@ export default function CustomersPage() {
 
   return (
     <Layout>
-      <div className="p-6">
+      <div className="space-y-6">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center">
               <UserCircle className="w-8 h-8 mr-3 text-[#E9B308]" />
@@ -431,103 +433,105 @@ export default function CustomersPage() {
 
         {/* Alerts */}
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
             <AlertCircle className="w-5 h-5 text-red-600 mr-2 flex-shrink-0 mt-0.5" />
             <span className="text-red-800">{error}</span>
           </div>
         )}
 
         {success && (
-          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start">
+          <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-start">
             <Check className="w-5 h-5 text-green-600 mr-2 flex-shrink-0 mt-0.5" />
             <span className="text-green-800">{success}</span>
           </div>
         )}
 
         {/* Filters and Search */}
-        <div className="mb-6 flex flex-col md:flex-row gap-4">
-          {/* Search */}
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="ค้นหาชื่อ, รหัส, เบอร์โทร..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-            />
+        <div className="data-filter-card">
+          <div className="flex flex-col md:flex-row gap-4">
+            {/* Search */}
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อ, รหัส, เบอร์โทร..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+              />
+            </div>
+
+            {/* Type Filter */}
+            <select
+              value={filterType}
+              onChange={(e) => { setFilterType(e.target.value); setCurrentPage(1); }}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+            >
+              <option value="all">ประเภททั้งหมด</option>
+              <option value="retail">ขายปลีก</option>
+              <option value="wholesale">ขายส่ง</option>
+              <option value="distributor">ตัวแทนจำหน่าย</option>
+            </select>
+
+            {/* Active Filter */}
+            <select
+              value={filterActive}
+              onChange={(e) => { setFilterActive(e.target.value); setCurrentPage(1); }}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+            >
+              <option value="all">สถานะทั้งหมด</option>
+              <option value="true">ใช้งาน</option>
+              <option value="false">ปิดใช้งาน</option>
+            </select>
+
+            {/* LINE Filter */}
+            <select
+              value={filterLine}
+              onChange={(e) => { setFilterLine(e.target.value); setCurrentPage(1); }}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+            >
+              <option value="all">LINE ทั้งหมด</option>
+              <option value="linked">เชื่อมต่อ LINE แล้ว</option>
+              <option value="not_linked">ยังไม่เชื่อมต่อ</option>
+            </select>
           </div>
-
-          {/* Type Filter */}
-          <select
-            value={filterType}
-            onChange={(e) => { setFilterType(e.target.value); setCurrentPage(1); }}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-          >
-            <option value="all">ประเภททั้งหมด</option>
-            <option value="retail">ขายปลีก</option>
-            <option value="wholesale">ขายส่ง</option>
-            <option value="distributor">ตัวแทนจำหน่าย</option>
-          </select>
-
-          {/* Active Filter */}
-          <select
-            value={filterActive}
-            onChange={(e) => { setFilterActive(e.target.value); setCurrentPage(1); }}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-          >
-            <option value="all">สถานะทั้งหมด</option>
-            <option value="true">ใช้งาน</option>
-            <option value="false">ปิดใช้งาน</option>
-          </select>
-
-          {/* LINE Filter */}
-          <select
-            value={filterLine}
-            onChange={(e) => { setFilterLine(e.target.value); setCurrentPage(1); }}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-          >
-            <option value="all">LINE ทั้งหมด</option>
-            <option value="linked">เชื่อมต่อ LINE แล้ว</option>
-            <option value="not_linked">ยังไม่เชื่อมต่อ</option>
-          </select>
         </div>
 
         {/* Customer Table */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="data-table-wrap">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="data-thead">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px]">
+                  <th className="data-th min-w-[200px]">
                     ลูกค้า
                   </th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[100px]">
+                  <th className="data-th w-[100px]">
                     ประเภท
                   </th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[110px]">
+                  <th className="data-th w-[110px]">
                     เบอร์โทร
                   </th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px]">
+                  <th className="data-th min-w-[200px]">
                     LINE
                   </th>
-                  <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-[100px]">
+                  <th className="data-th text-right w-[100px]">
                     ยอดสั่งซื้อ
                   </th>
-                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-[60px]">
+                  <th className="data-th text-center w-[60px]">
                     สาขา
                   </th>
-                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-[90px]">
+                  <th className="data-th text-center w-[90px]">
                     สถานะ
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="data-tbody">
                 {paginatedCustomers.map((customer) => (
                   <tr
                     key={customer.id}
                     onClick={() => router.push(`/customers/${customer.id}`)}
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    className="data-tr cursor-pointer"
                   >
                     {/* ลูกค้า: ชื่อ (เด่น) + รหัส (จาง) */}
                     <td className="px-4 py-3">
@@ -604,78 +608,79 @@ export default function CustomersPage() {
               </tbody>
             </table>
           </div>
-        </div>
 
-        {/* Pagination */}
-        {filteredCustomers.length > 0 && (
-          <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">แสดง</span>
-              <select
-                value={rowsPerPage}
-                onChange={(e) => {
-                  setRowsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-              >
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-              <span className="text-sm text-gray-600">รายการ/หน้า</span>
-            </div>
-
-            <div className="text-sm text-gray-600">
-              แสดง {startIndex + 1}-{Math.min(endIndex, filteredCustomers.length)} จาก {filteredCustomers.length} รายการ
-            </div>
-
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-                className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-
-              {/* Page numbers */}
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let pageNum;
-                if (totalPages <= 5) {
-                  pageNum = i + 1;
-                } else if (currentPage <= 3) {
-                  pageNum = i + 1;
-                } else if (currentPage >= totalPages - 2) {
-                  pageNum = totalPages - 4 + i;
-                } else {
-                  pageNum = currentPage - 2 + i;
-                }
-                return (
-                  <button
-                    key={pageNum}
-                    onClick={() => setCurrentPage(pageNum)}
-                    className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
-                      currentPage === pageNum
-                        ? 'bg-[#E9B308] text-[#00231F]'
-                        : 'border border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    {pageNum}
+          {/* Pagination */}
+          {filteredCustomers.length > 0 && (
+            <div className="data-pagination">
+              <div className="flex items-center gap-1 text-sm text-gray-600">
+                <span>{startIndex + 1} - {Math.min(endIndex, filteredCustomers.length)} จาก {filteredCustomers.length} รายการ</span>
+                <select
+                  value={rowsPerPage}
+                  onChange={(e) => {
+                    setRowsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="mx-1 px-1 py-0.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
+                >
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>/หน้า</span>
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าแรก">
+                    <ChevronsLeft className="w-4 h-4" />
                   </button>
-                );
-              })}
-
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+                  <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าก่อน">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {(() => {
+                      const pages: (number | string)[] = [];
+                      if (totalPages <= 3) {
+                        for (let i = 1; i <= totalPages; i++) pages.push(i);
+                      } else {
+                        // current +-1, ..., last
+                        const start = Math.max(1, currentPage - 1);
+                        const end = Math.min(totalPages, currentPage + 1);
+                        for (let i = start; i <= end; i++) pages.push(i);
+                        if (end < totalPages - 1) pages.push('...');
+                        if (end < totalPages) pages.push(totalPages);
+                        if (start > 2) pages.unshift('...');
+                        if (start > 1) pages.unshift(1);
+                      }
+                      return pages.map((page, idx) =>
+                        page === '...' ? (
+                          <span key={`dots-${idx}`} className="px-1 text-gray-400">...</span>
+                        ) : (
+                          <button
+                            key={page}
+                            onClick={() => setCurrentPage(page as number)}
+                            className={`w-8 h-8 rounded text-sm font-medium ${
+                              currentPage === page
+                                ? 'bg-[#E9B308] text-[#00231F]'
+                                : 'hover:bg-gray-100 text-gray-700'
+                            }`}
+                          >
+                            {page}
+                          </button>
+                        )
+                      );
+                    })()}
+                  </div>
+                  <button onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าถัดไป">
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าสุดท้าย">
+                    <ChevronsRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Empty State */}
         {filteredCustomers.length === 0 && (

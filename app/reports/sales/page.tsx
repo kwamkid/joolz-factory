@@ -395,7 +395,7 @@ export default function SalesReportPage() {
       )}
 
       {/* Data Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="data-table-wrap-shadow">
         {loading ? (
           <div className="p-8 text-center">
             <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-[#E9B308]" />
@@ -408,40 +408,40 @@ export default function SalesReportPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="data-table-fixed">
+              <thead className="data-thead">
                 <tr>
                   {groupBy === 'date' && (
                     <>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">วันที่</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">จำนวน Order</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">ยอดขาย</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">ชำระแล้ว</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">รอชำระ</th>
+                      <th className="data-th">วันที่</th>
+                      <th className="data-th text-center">จำนวน Order</th>
+                      <th className="data-th text-right">ยอดขาย</th>
+                      <th className="data-th text-right">ชำระแล้ว</th>
+                      <th className="data-th text-right">รอชำระ</th>
                       <th className="px-6 py-3 w-10"></th>
                     </>
                   )}
                   {groupBy === 'customer' && (
                     <>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ลูกค้า</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">จำนวน Order</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">ยอดขาย</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">ชำระแล้ว</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">รอชำระ</th>
+                      <th className="data-th">ลูกค้า</th>
+                      <th className="data-th text-center">จำนวน Order</th>
+                      <th className="data-th text-right">ยอดขาย</th>
+                      <th className="data-th text-right">ชำระแล้ว</th>
+                      <th className="data-th text-right">รอชำระ</th>
                       <th className="px-6 py-3 w-10"></th>
                     </>
                   )}
                   {groupBy === 'product' && (
                     <>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">สินค้า</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">ขนาด</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">จำนวนขาย</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">ยอดขาย</th>
+                      <th className="data-th">สินค้า</th>
+                      <th className="data-th text-center">ขนาด</th>
+                      <th className="data-th text-center">จำนวนขาย</th>
+                      <th className="data-th text-right">ยอดขาย</th>
                     </>
                   )}
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="data-tbody">
                 {groupBy === 'date' && groupedData.map((item: GroupedDataByDate, index: number) => (
                   <Fragment key={item.date || `date-${index}`}>
                     <tr
@@ -556,7 +556,7 @@ export default function SalesReportPage() {
               </tbody>
 
               {/* Total Footer */}
-              <tfoot className="bg-gray-100">
+              <tfoot className="data-tfoot">
                 <tr>
                   <td className="px-6 py-4 font-bold text-gray-900" colSpan={groupBy === 'product' ? 2 : 2}>
                     รวมทั้งหมด

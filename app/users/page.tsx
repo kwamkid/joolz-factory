@@ -451,8 +451,9 @@ export default function UsersPage() {
         { label: 'จัดการผู้ใช้งาน' }
       ]}
     >
+      <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center space-x-3">
           <Shield className="w-8 h-8 text-[#E9B308]" />
           <div>
@@ -483,7 +484,7 @@ export default function UsersPage() {
 
       {/* Alerts */}
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
             <p className="text-sm text-red-700">{error}</p>
@@ -498,7 +499,7 @@ export default function UsersPage() {
       )}
 
       {success && (
-        <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start space-x-3">
+        <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-start space-x-3">
           <Check className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
             <p className="text-sm text-green-700">{success}</p>
@@ -513,8 +514,8 @@ export default function UsersPage() {
       )}
 
       {/* Search */}
-      <div className="mb-6">
-        <div className="relative max-w-md">
+      <div className="data-filter-card">
+        <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
@@ -527,34 +528,34 @@ export default function UsersPage() {
       </div>
 
       {/* Users Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="data-table-wrap-shadow">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="data-table-fixed">
+            <thead className="data-thead">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="data-th">
                   ผู้ใช้
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="data-th">
                   Role
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="data-th">
                   เบอร์โทร
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="data-th">
                   สถานะ
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="data-th">
                   วันที่สร้าง
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="data-th text-right">
                   จัดการ
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="data-tbody">
               {paginatedUsers.map((user) => (
-                <tr key={user.id} className="hover:bg-gray-50">
+                <tr key={user.id} className="data-tr">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div className="flex-shrink-0 h-10 w-10">
@@ -648,92 +649,77 @@ export default function UsersPage() {
 
           {/* Pagination */}
           {totalFiltered > 0 && (
-            <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <span className="text-sm text-gray-600">
-                  แสดง {startIndex + 1} - {Math.min(startIndex + rowsPerPage, totalFiltered)} จาก {totalFiltered} รายการ
-                </span>
+            <div className="data-pagination">
+              <div className="flex items-center gap-1 text-sm text-gray-600">
+                <span>{startIndex + 1} - {Math.min(startIndex + rowsPerPage, totalFiltered)} จาก {totalFiltered} รายการ</span>
                 <select
                   value={rowsPerPage}
                   onChange={(e) => {
                     setRowsPerPage(Number(e.target.value));
                     setCurrentPage(1);
                   }}
-                  className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
+                  className="mx-1 px-1 py-0.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
                 >
-                  <option value={10}>10 ต่อหน้า</option>
-                  <option value={20}>20 ต่อหน้า</option>
-                  <option value={50}>50 ต่อหน้า</option>
-                  <option value={100}>100 ต่อหน้า</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
                 </select>
+                <span>/หน้า</span>
               </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => goToPage(1)}
-                  disabled={currentPage === 1}
-                  className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="หน้าแรก"
-                >
-                  <ChevronsLeft className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => goToPage(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="หน้าก่อน"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum: number;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = currentPage - 2 + i;
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => goToPage(pageNum)}
-                        className={`w-8 h-8 rounded text-sm font-medium ${
-                          currentPage === pageNum
-                            ? 'bg-[#E9B308] text-[#00231F]'
-                            : 'hover:bg-gray-100 text-gray-700'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button onClick={() => goToPage(1)} disabled={currentPage === 1} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าแรก">
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าก่อน">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {(() => {
+                      const pages: (number | string)[] = [];
+                      if (totalPages <= 3) {
+                        for (let i = 1; i <= totalPages; i++) pages.push(i);
+                      } else {
+                        const start = Math.max(1, currentPage - 1);
+                        const end = Math.min(totalPages, currentPage + 1);
+                        for (let i = start; i <= end; i++) pages.push(i);
+                        if (end < totalPages - 1) pages.push('...');
+                        if (end < totalPages) pages.push(totalPages);
+                        if (start > 2) pages.unshift('...');
+                        if (start > 1) pages.unshift(1);
+                      }
+                      return pages.map((page, idx) =>
+                        page === '...' ? (
+                          <span key={`dots-${idx}`} className="px-1 text-gray-400">...</span>
+                        ) : (
+                          <button
+                            key={page}
+                            onClick={() => goToPage(page as number)}
+                            className={`w-8 h-8 rounded text-sm font-medium ${
+                              currentPage === page
+                                ? 'bg-[#E9B308] text-[#00231F]'
+                                : 'hover:bg-gray-100 text-gray-700'
+                            }`}
+                          >
+                            {page}
+                          </button>
+                        )
+                      );
+                    })()}
+                  </div>
+                  <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าถัดไป">
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => goToPage(totalPages)} disabled={currentPage === totalPages} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าสุดท้าย">
+                    <ChevronsRight className="w-4 h-4" />
+                  </button>
                 </div>
-
-                <button
-                  onClick={() => goToPage(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                  className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="หน้าถัดไป"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => goToPage(totalPages)}
-                  disabled={currentPage === totalPages}
-                  className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="หน้าสุดท้าย"
-                >
-                  <ChevronsRight className="w-4 h-4" />
-                </button>
-              </div>
+              )}
             </div>
           )}
         </div>
+      </div>
+
       </div>
 
       {/* Add/Edit Modal */}

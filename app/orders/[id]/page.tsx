@@ -57,7 +57,7 @@ interface OrderItemShipment {
 interface OrderItem {
   id: string;
   variation_id: string;
-  sellable_product_id: string;
+  product_id: string;
   product_code: string;
   product_name: string;
   bottle_size?: string;

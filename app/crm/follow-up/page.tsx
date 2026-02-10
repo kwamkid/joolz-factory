@@ -160,7 +160,7 @@ function SortableHeader({
 
   return (
     <th
-      className={`px-6 py-3 text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      className={`data-th cursor-pointer hover:bg-gray-100 select-none ${className}`}
       onClick={() => onSort(field)}
     >
       <div className="flex items-center gap-1">
@@ -383,7 +383,7 @@ export default function CRMFollowUpPage() {
         )}
 
         {/* Filters */}
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="data-filter-card">
           <div className="flex flex-col md:flex-row gap-4">
             {/* Search */}
             <div className="relative flex-1">
@@ -418,20 +418,6 @@ export default function CRMFollowUpPage() {
               </select>
             </div>
 
-            {/* Rows per page */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">แสดง:</span>
-              <select
-                value={rowsPerPage}
-                onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm"
-              >
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </div>
           </div>
         </div>
 
@@ -443,7 +429,7 @@ export default function CRMFollowUpPage() {
         )}
 
         {/* Customer List */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="data-table-wrap">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 text-[#E9B308] animate-spin" />
@@ -456,7 +442,7 @@ export default function CRMFollowUpPage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="data-thead">
                   <tr>
                     <SortableHeader
                       label="ลูกค้า"
@@ -466,7 +452,7 @@ export default function CRMFollowUpPage() {
                       onSort={handleSort}
                       className="text-left"
                     />
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ประเภท</th>
+                    <th className="data-th">ประเภท</th>
                     <SortableHeader
                       label="สั่งล่าสุด"
                       field="last_order_date"
@@ -483,7 +469,7 @@ export default function CRMFollowUpPage() {
                       onSort={handleSort}
                       className="text-center"
                     />
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">รอบสั่งซื้อ</th>
+                    <th className="data-th text-center">รอบสั่งซื้อ</th>
                     <SortableHeader
                       label="ออเดอร์"
                       field="total_orders"
@@ -500,12 +486,12 @@ export default function CRMFollowUpPage() {
                       onSort={handleSort}
                       className="text-right"
                     />
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">ดำเนินการ</th>
+                    <th className="data-th text-center">ดำเนินการ</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="data-tbody">
                   {customers.map((customer) => (
-                    <tr key={customer.id} className="hover:bg-gray-50">
+                    <tr key={customer.id} className="data-tr">
                       {/* Customer Info */}
                       <td className="px-6 py-4">
                         <div>
@@ -594,84 +580,76 @@ export default function CRMFollowUpPage() {
               </table>
             </div>
           )}
-        </div>
 
-        {/* Pagination */}
-        {!loading && pagination.totalPages > 1 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white rounded-lg border border-gray-200 px-4 py-3">
-            <div className="text-sm text-gray-500">
-              แสดง {((currentPage - 1) * rowsPerPage) + 1} - {Math.min(currentPage * rowsPerPage, pagination.total)} จาก {pagination.total} รายการ
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handlePageChange(1)}
-                disabled={currentPage === 1}
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronsLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => handlePageChange(currentPage - 1)}
-                disabled={currentPage === 1}
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-
-              {/* Page numbers */}
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
-                  let pageNum;
-                  if (pagination.totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= pagination.totalPages - 2) {
-                    pageNum = pagination.totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
-
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => handlePageChange(pageNum)}
-                      className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
-                        currentPage === pageNum
-                          ? 'bg-[#E9B308] text-[#00231F]'
-                          : 'border border-gray-300 hover:bg-gray-50'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
+          {/* Pagination */}
+          {!loading && pagination.total > 0 && (
+            <div className="data-pagination">
+              <div className="flex items-center gap-1 text-sm text-gray-600">
+                <span>{((currentPage - 1) * rowsPerPage) + 1} - {Math.min(currentPage * rowsPerPage, pagination.total)} จาก {pagination.total} รายการ</span>
+                <select
+                  value={rowsPerPage}
+                  onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                  className="mx-1 px-1 py-0.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
+                >
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>/หน้า</span>
               </div>
-
-              <button
-                onClick={() => handlePageChange(currentPage + 1)}
-                disabled={currentPage === pagination.totalPages}
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => handlePageChange(pagination.totalPages)}
-                disabled={currentPage === pagination.totalPages}
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronsRight className="w-4 h-4" />
-              </button>
+              {pagination.totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button onClick={() => handlePageChange(1)} disabled={currentPage === 1} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าแรก">
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าก่อน">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {(() => {
+                      const pages: (number | string)[] = [];
+                      const tp = pagination.totalPages;
+                      if (tp <= 3) {
+                        for (let i = 1; i <= tp; i++) pages.push(i);
+                      } else {
+                        const start = Math.max(1, currentPage - 1);
+                        const end = Math.min(tp, currentPage + 1);
+                        for (let i = start; i <= end; i++) pages.push(i);
+                        if (end < tp - 1) pages.push('...');
+                        if (end < tp) pages.push(tp);
+                        if (start > 2) pages.unshift('...');
+                        if (start > 1) pages.unshift(1);
+                      }
+                      return pages.map((page, idx) =>
+                        page === '...' ? (
+                          <span key={`dots-${idx}`} className="px-1 text-gray-400">...</span>
+                        ) : (
+                          <button
+                            key={page}
+                            onClick={() => handlePageChange(page as number)}
+                            className={`w-8 h-8 rounded text-sm font-medium ${
+                              currentPage === page
+                                ? 'bg-[#E9B308] text-[#00231F]'
+                                : 'hover:bg-gray-100 text-gray-700'
+                            }`}
+                          >
+                            {page}
+                          </button>
+                        )
+                      );
+                    })()}
+                  </div>
+                  <button onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === pagination.totalPages} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าถัดไป">
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => handlePageChange(pagination.totalPages)} disabled={currentPage === pagination.totalPages} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าสุดท้าย">
+                    <ChevronsRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* Results count (for single page) */}
-        {!loading && customers.length > 0 && pagination.totalPages <= 1 && (
-          <div className="text-sm text-gray-500 text-center">
-            แสดง {customers.length} ลูกค้า
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </Layout>
   );

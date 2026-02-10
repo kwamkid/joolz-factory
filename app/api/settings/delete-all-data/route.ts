@@ -77,61 +77,25 @@ export async function DELETE(request: NextRequest) {
     console.log('Deleting orders...');
     await supabaseAdmin.from('orders').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    // 4. Delete production usage (child of production)
-    console.log('Deleting production_raw_material_usage...');
-    await supabaseAdmin.from('production_raw_material_usage').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    // 4. Delete product images
+    console.log('Deleting product_images...');
+    await supabaseAdmin.from('product_images').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    // 5. Delete production bottle usage
-    console.log('Deleting production_bottle_usage...');
-    await supabaseAdmin.from('production_bottle_usage').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    // 5. Delete product variations
+    console.log('Deleting product_variations...');
+    await supabaseAdmin.from('product_variations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    // 6. Delete production batches
-    console.log('Deleting production_batches...');
-    await supabaseAdmin.from('production_batches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // 7. Delete sellable product variations
-    console.log('Deleting sellable_product_variations...');
-    await supabaseAdmin.from('sellable_product_variations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // 8. Delete sellable products
-    console.log('Deleting sellable_products...');
-    await supabaseAdmin.from('sellable_products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // 9. Delete product recipes
-    console.log('Deleting product_recipes...');
-    await supabaseAdmin.from('product_recipes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // 10. Delete products
+    // 6. Delete products
     console.log('Deleting products...');
     await supabaseAdmin.from('products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    // 11. Delete bottle stock transactions
-    console.log('Deleting bottle_stock_transactions...');
-    await supabaseAdmin.from('bottle_stock_transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // 12. Delete bottle types
-    console.log('Deleting bottle_types...');
-    await supabaseAdmin.from('bottle_types').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // 13. Delete stock transactions
-    console.log('Deleting stock_transactions...');
-    await supabaseAdmin.from('stock_transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // 14. Delete raw materials
-    console.log('Deleting raw_materials...');
-    await supabaseAdmin.from('raw_materials').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // 15. Delete shipping addresses
+    // 7. Delete shipping addresses
     console.log('Deleting shipping_addresses...');
     await supabaseAdmin.from('shipping_addresses').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    // 16. Delete customers
+    // 8. Delete customers
     console.log('Deleting customers...');
     await supabaseAdmin.from('customers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // 17. Delete suppliers
-    console.log('Deleting suppliers...');
-    await supabaseAdmin.from('suppliers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
     console.log('All data deleted successfully!');
 

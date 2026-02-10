@@ -49,6 +49,25 @@ export interface Customer {
   updatedAt: Date;
 }
 
+// Variation Type (managed in Settings, stored in DB)
+export interface VariationType {
+  id: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at?: string;
+}
+
+// Helper: Build display name from variation attributes
+export function buildVariationDisplayName(attributes: Record<string, string> | null | undefined): string {
+  if (!attributes) return '';
+  const parts: string[] = [];
+  for (const value of Object.values(attributes)) {
+    if (value && value.trim()) parts.push(value.trim());
+  }
+  return parts.join(' / ') || '';
+}
+
 // Product Types
 export interface Product {
   id: string;
@@ -57,18 +76,6 @@ export interface Product {
   description?: string;
   category: string;
   isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-// Bottle Types
-export interface BottleType {
-  id: string;
-  size: string; // 250ml, 350ml, 1L
-  price: number;
-  stock: number;
-  minStock: number;
-  image?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -180,7 +187,7 @@ export interface SalesOrder {
 export interface OrderItem {
   id: string;
   productId: string;
-  bottleTypeId: string;
+  bottleSize: string;
   quantity: number;
   pricePerUnit: number;
   total: number;

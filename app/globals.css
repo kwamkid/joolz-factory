@@ -49,6 +49,72 @@
   }
 }
 
+/* Filter bar icon button — same height as input/select (42px) */
+@layer components {
+  .btn-filter-icon {
+    @apply flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors;
+    height: 42px;
+    width: 42px;
+    box-sizing: border-box;
+  }
+}
+
+/* ── Global Data Table ── */
+@layer components {
+  /* Filter card */
+  .data-filter-card {
+    @apply bg-white rounded-lg border border-gray-200 p-4;
+  }
+
+  /* Table wrappers */
+  .data-table-wrap {
+    @apply bg-white rounded-lg border border-gray-200 overflow-hidden;
+  }
+  .data-table-wrap-shadow {
+    @apply bg-white rounded-lg shadow overflow-hidden;
+  }
+  .data-table {
+    @apply w-full;
+  }
+  .data-table-fixed {
+    @apply min-w-full divide-y divide-gray-200;
+  }
+  .data-thead {
+    @apply bg-gray-50 border-b border-gray-200;
+  }
+  .data-th {
+    @apply px-6 py-3 text-left text-sm font-semibold text-gray-700 tracking-wide;
+  }
+  .data-tbody {
+    @apply bg-white divide-y divide-gray-200;
+  }
+  .data-tr {
+    @apply hover:bg-gray-50 transition-colors;
+  }
+  .data-td {
+    @apply px-6 py-4;
+  }
+  .data-tfoot {
+    @apply bg-gray-100;
+  }
+  .data-pagination {
+    @apply px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3;
+  }
+}
+
+/* Table body font size max 14px */
+.data-tbody td {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+/* Pagination per-page select compact */
+.data-pagination select {
+  width: 4.5rem;
+  padding: 0.125rem 0.25rem;
+  text-align: center;
+}
+
 /* Custom scrollbar styles */
 ::-webkit-scrollbar {
   width: 8px;

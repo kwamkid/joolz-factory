@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
-import { Settings as SettingsIcon, Users, Plus, X, Save, Loader2 } from 'lucide-react';
+import { Settings as SettingsIcon, Users, Plus, X, Save, Loader2, Tag, Edit2, Check } from 'lucide-react';
 
 interface DayRange {
   minDays: number;
@@ -35,10 +35,19 @@ export default function SettingsPage() {
   const [loadingCRM, setLoadingCRM] = useState(true);
   const [savingCRM, setSavingCRM] = useState(false);
 
-  // Fetch CRM settings
+  // Variation Types Settings
+  const [variationTypes, setVariationTypes] = useState<{ id: string; name: string; sort_order: number; is_active: boolean }[]>([]);
+  const [loadingVT, setLoadingVT] = useState(true);
+  const [newTypeName, setNewTypeName] = useState('');
+  const [addingVT, setAddingVT] = useState(false);
+  const [editingVTId, setEditingVTId] = useState<string | null>(null);
+  const [editingVTName, setEditingVTName] = useState('');
+
+  // Fetch CRM settings + Variation Types
   useEffect(() => {
     if (userProfile?.role === 'admin') {
       fetchCRMSettings();
+      fetchVariationTypes();
     }
   }, [userProfile]);
 
@@ -170,6 +179,97 @@ export default function SettingsPage() {
 
   const getColorPreset = (color: string) => {
     return colorPresets.find(c => c.value === color) || colorPresets[0];
+  };
+
+  // --- Variation Types Functions ---
+  const fetchVariationTypes = async () => {
+    try {
+      setLoadingVT(true);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const response = await fetch('/api/variation-types', {
+        headers: { 'Authorization': `Bearer ${sessionData?.session?.access_token || ''}` }
+      });
+      const result = await response.json();
+      setVariationTypes(result.data || []);
+    } catch (err) {
+      console.error('Error fetching variation types:', err);
+    } finally {
+      setLoadingVT(false);
+    }
+  };
+
+  const handleAddVariationType = async () => {
+    if (!newTypeName.trim()) return;
+    setAddingVT(true);
+    setError('');
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const response = await fetch('/api/variation-types', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+        },
+        body: JSON.stringify({ name: newTypeName.trim() })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setNewTypeName('');
+      setSuccess('เพิ่มประเภทตัวเลือกสำเร็จ');
+      setTimeout(() => setSuccess(''), 3000);
+      fetchVariationTypes();
+    } catch (err) {
+      if (err instanceof Error) setError(err.message);
+      else setError('ไม่สามารถเพิ่มได้');
+    } finally {
+      setAddingVT(false);
+    }
+  };
+
+  const handleUpdateVariationType = async (id: string) => {
+    if (!editingVTName.trim()) return;
+    setError('');
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const response = await fetch('/api/variation-types', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionData?.session?.access_token || ''}`
+        },
+        body: JSON.stringify({ id, name: editingVTName.trim() })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setEditingVTId(null);
+      setEditingVTName('');
+      setSuccess('แก้ไขประเภทตัวเลือกสำเร็จ');
+      setTimeout(() => setSuccess(''), 3000);
+      fetchVariationTypes();
+    } catch (err) {
+      if (err instanceof Error) setError(err.message);
+      else setError('ไม่สามารถแก้ไขได้');
+    }
+  };
+
+  const handleDeleteVariationType = async (id: string, name: string) => {
+    if (!confirm(`ลบ "${name}" หรือไม่?`)) return;
+    setError('');
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const response = await fetch(`/api/variation-types?id=${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${sessionData?.session?.access_token || ''}` }
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setSuccess('ลบประเภทตัวเลือกสำเร็จ');
+      setTimeout(() => setSuccess(''), 3000);
+      fetchVariationTypes();
+    } catch (err) {
+      if (err instanceof Error) setError(err.message);
+      else setError('ไม่สามารถลบได้');
+    }
   };
 
   // Only allow admin to access this page
@@ -317,6 +417,103 @@ export default function SettingsPage() {
                   <Plus className="w-5 h-5" />
                   เพิ่มช่วงวัน
                 </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Variation Types Settings */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center justify-between p-4 border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <Tag className="w-5 h-5 text-[#E9B308]" />
+              <h2 className="text-lg font-semibold text-gray-900">ประเภทตัวเลือกสินค้า</h2>
+            </div>
+          </div>
+
+          <div className="p-4">
+            <p className="text-sm text-gray-600 mb-4">
+              จัดการประเภทตัวเลือกสำหรับ Variation Products เช่น ความจุ, รูปทรง, สี
+            </p>
+
+            {loadingVT ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 text-[#E9B308] animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {/* Existing Types */}
+                {variationTypes.map((vt) => (
+                  <div key={vt.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    {editingVTId === vt.id ? (
+                      <>
+                        <input
+                          type="text"
+                          value={editingVTName}
+                          onChange={(e) => setEditingVTName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleUpdateVariationType(vt.id);
+                            if (e.key === 'Escape') { setEditingVTId(null); setEditingVTName(''); }
+                          }}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => handleUpdateVariationType(vt.id)}
+                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
+                          title="บันทึก"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => { setEditingVTId(null); setEditingVTName(''); }}
+                          className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg"
+                          title="ยกเลิก"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex-1 text-sm font-medium text-gray-700">{vt.name}</span>
+                        <button
+                          onClick={() => { setEditingVTId(vt.id); setEditingVTName(vt.name); }}
+                          className="p-2 text-gray-400 hover:text-[#E9B308] hover:bg-yellow-50 rounded-lg transition-colors"
+                          title="แก้ไข"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteVariationType(vt.id, vt.name)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="ลบ"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+
+                {/* Add New */}
+                <div className="flex items-center gap-3 pt-2">
+                  <input
+                    type="text"
+                    value={newTypeName}
+                    onChange={(e) => setNewTypeName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddVariationType(); }}
+                    placeholder="ชื่อประเภทตัวเลือกใหม่"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
+                  />
+                  <button
+                    onClick={handleAddVariationType}
+                    disabled={addingVT || !newTypeName.trim()}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#E9B308] text-[#00231F] rounded-lg hover:bg-[#d4a307] transition-colors font-medium disabled:opacity-50 text-sm"
+                  >
+                    {addingVT ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    เพิ่ม
+                  </button>
+                </div>
               </div>
             )}
           </div>

@@ -4,8 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // Type definitions
 interface OrderItemInput {
-  variation_id: string; // sellable_product_variations.id
-  sellable_product_id: string; // sellable_products.id
+  variation_id: string; // product_variations.id
+  product_id: string; // products.id
   product_code: string;
   product_name: string;
   bottle_size?: string;
@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
         .insert({
           order_id: order.id,
           variation_id: item.variation_id,
-          sellable_product_id: item.sellable_product_id,
+          product_id: item.product_id,
           product_code: item.product_code,
           product_name: item.product_name,
           bottle_size: item.bottle_size || null,
@@ -606,7 +606,7 @@ export async function PUT(request: NextRequest) {
           .insert({
             order_id: id,
             variation_id: item.variation_id,
-            sellable_product_id: item.sellable_product_id,
+            product_id: item.product_id,
             product_code: item.product_code,
             product_name: item.product_name,
             bottle_size: item.bottle_size || null,

@@ -43,12 +43,11 @@ interface ShippingAddress {
 
 interface Product {
   id: string;
-  sellable_product_id: string;
+  product_id: string;
   code: string;
   name: string;
   image?: string;
   bottle_size?: string;
-  bottle_capacity_ml?: number;
   product_type: 'simple' | 'variation';
   default_price: number;
   discount_price?: number;
@@ -57,11 +56,10 @@ interface Product {
 
 interface BranchProduct {
   variation_id: string;
-  sellable_product_id: string;
+  product_id: string;
   product_code: string;
   product_name: string;
   bottle_size?: string;
-  bottle_capacity_ml?: number;
   quantity: number;
   unit_price: number;
   discount_value: number;
@@ -247,42 +245,26 @@ export default function OrderForm({
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const [productsResponse, bottleTypesResponse] = await Promise.all([
-        fetch('/api/sellable-products', {
-          headers: { 'Authorization': `Bearer ${session.access_token}` }
-        }),
-        fetch('/api/bottle-types', {
-          headers: { 'Authorization': `Bearer ${session.access_token}` }
-        })
-      ]);
+      const productsResponse = await fetch('/api/products', {
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
 
       if (!productsResponse.ok) throw new Error('Failed to fetch products');
 
       const result = await productsResponse.json();
-      const sellableProducts = result.sellable_products || [];
-
-      const bottleTypeMap = new Map<string, { size: string; capacity_ml: number }>();
-      if (bottleTypesResponse.ok) {
-        const bottleTypesResult = await bottleTypesResponse.json();
-        (bottleTypesResult.bottle_types || []).forEach((bt: any) => {
-          bottleTypeMap.set(bt.id, { size: bt.size, capacity_ml: bt.capacity_ml });
-        });
-      }
+      const fetchedProducts = result.products || [];
 
       const flatProducts: Product[] = [];
-      sellableProducts.forEach((sp: any) => {
+      fetchedProducts.forEach((sp: any) => {
         if (sp.product_type === 'simple') {
           const variation_id = sp.variations && sp.variations.length > 0 ? sp.variations[0].variation_id : null;
-          const bottleTypeId = sp.simple_bottle_type_id || (sp.variations && sp.variations[0]?.bottle_type_id);
-          const bottleInfo = bottleTypeId ? bottleTypeMap.get(bottleTypeId) : null;
           flatProducts.push({
-            id: variation_id || sp.sellable_product_id,
-            sellable_product_id: sp.sellable_product_id,
+            id: variation_id || sp.product_id,
+            product_id: sp.product_id,
             code: sp.code,
             name: sp.name,
-            image: sp.image,
+            image: sp.main_image_url || sp.image,
             bottle_size: sp.simple_bottle_size,
-            bottle_capacity_ml: sp.simple_bottle_capacity_ml || bottleInfo?.capacity_ml,
             product_type: 'simple',
             default_price: sp.simple_default_price || 0,
             discount_price: sp.simple_discount_price || 0,
@@ -290,15 +272,13 @@ export default function OrderForm({
           });
         } else {
           (sp.variations || []).forEach((v: any) => {
-            const bottleInfo = v.bottle_type_id ? bottleTypeMap.get(v.bottle_type_id) : null;
             flatProducts.push({
               id: v.variation_id,
-              sellable_product_id: sp.sellable_product_id,
+              product_id: sp.product_id,
               code: `${sp.code}-${v.bottle_size}`,
               name: sp.name,
-              image: sp.image,
+              image: sp.main_image_url || sp.image,
               bottle_size: v.bottle_size,
-              bottle_capacity_ml: v.bottle_capacity_ml || bottleInfo?.capacity_ml,
               product_type: 'variation',
               default_price: v.default_price || 0,
               discount_price: v.discount_price || 0,
@@ -438,11 +418,10 @@ export default function OrderForm({
           if (!existingProduct) {
             branch.products.push({
               variation_id: item.variation_id,
-              sellable_product_id: item.sellable_product_id,
+              product_id: item.product_id,
               product_code: item.product_code,
               product_name: item.product_name,
               bottle_size: item.bottle_size,
-              bottle_capacity_ml: item.bottle_capacity_ml,
               quantity: shipment.quantity,
               unit_price: item.unit_price,
               discount_value: item.discount_type === 'amount' ? (item.discount_amount || 0) : (item.discount_percent || 0),
@@ -556,11 +535,10 @@ export default function OrderForm({
 
     const newProduct: BranchProduct = {
       variation_id: product.id,
-      sellable_product_id: product.sellable_product_id,
+      product_id: product.product_id,
       product_code: product.code,
       product_name: product.name,
       bottle_size: product.bottle_size,
-      bottle_capacity_ml: product.bottle_capacity_ml,
       quantity: 1,
       unit_price,
       discount_value,
@@ -682,7 +660,7 @@ export default function OrderForm({
       const items = branchOrders.flatMap(branch =>
         branch.products.map(product => ({
           variation_id: product.variation_id,
-          sellable_product_id: product.sellable_product_id,
+          product_id: product.product_id,
           product_code: product.product_code,
           product_name: product.product_name,
           bottle_size: product.bottle_size,
@@ -756,9 +734,8 @@ export default function OrderForm({
     c.customer_code.toLowerCase().includes(customerSearch.toLowerCase())
   );
 
-  const getCapacityDisplay = (capacityMl?: number) => {
-    if (!capacityMl) return '';
-    return capacityMl >= 1000 ? `${capacityMl / 1000}L` : `${capacityMl}ml`;
+  const getBottleSizeDisplay = (bottleSize?: string) => {
+    return bottleSize || '';
   };
 
   return (
@@ -984,7 +961,7 @@ export default function OrderForm({
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {branch.products.map((product, productIndex) => {
-                      const capacityDisplay = getCapacityDisplay(product.bottle_capacity_ml);
+                      const capacityDisplay = getBottleSizeDisplay(product.bottle_size);
                       return (
                         <tr key={product.variation_id} className="hover:bg-gray-50/50">
                           <td className="px-4 py-2.5">
@@ -1100,7 +1077,7 @@ export default function OrderForm({
                             p.code.toLowerCase().includes(productSearches[branchIndex].toLowerCase())
                           )
                           .map(product => {
-                            const capacityDisplay = getCapacityDisplay(product.bottle_capacity_ml);
+                            const capacityDisplay = getBottleSizeDisplay(product.bottle_size);
                             return (
                               <button
                                 key={product.id}

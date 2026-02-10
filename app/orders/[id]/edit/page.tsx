@@ -42,8 +42,8 @@ interface ShippingAddress {
 }
 
 interface Product {
-  id: string; // variation_id for variations, sellable_product_id for simple products
-  sellable_product_id: string;
+  id: string; // variation_id for variations, product_id for simple products
+  product_id: string;
   code: string;
   name: string;
   bottle_size?: string;
@@ -56,7 +56,7 @@ interface Product {
 // Branch-First structure
 interface BranchProduct {
   variation_id: string;
-  sellable_product_id: string;
+  product_id: string;
   product_code: string;
   product_name: string;
   bottle_size?: string;
@@ -98,7 +98,7 @@ interface OrderItemShipment {
 interface OrderItem {
   id: string;
   variation_id: string;
-  sellable_product_id: string;
+  product_id: string;
   product_code: string;
   product_name: string;
   bottle_size?: string;
@@ -263,7 +263,7 @@ export default function EditOrderPage() {
             // Add new product to branch
             branch.products.push({
               variation_id: item.variation_id,
-              sellable_product_id: item.sellable_product_id,
+              product_id: item.product_id,
               product_code: item.product_code,
               product_name: item.product_name,
               bottle_size: item.bottle_size,
@@ -293,7 +293,7 @@ export default function EditOrderPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const response = await fetch('/api/sellable-products', {
+      const response = await fetch('/api/products', {
         headers: {
           'Authorization': `Bearer ${session.access_token}`
         }
@@ -302,17 +302,17 @@ export default function EditOrderPage() {
       if (!response.ok) throw new Error('Failed to fetch products');
 
       const result = await response.json();
-      const sellableProducts = result.sellable_products || [];
+      const fetchedProducts = result.products || [];
 
       // Flatten variations into individual products
       const flatProducts: Product[] = [];
 
-      sellableProducts.forEach((sp: any) => {
+      fetchedProducts.forEach((sp: any) => {
         if (sp.product_type === 'simple') {
           const variation_id = sp.variations && sp.variations.length > 0 ? sp.variations[0].variation_id : null;
           flatProducts.push({
-            id: variation_id || sp.sellable_product_id,
-            sellable_product_id: sp.sellable_product_id,
+            id: variation_id || sp.product_id,
+            product_id: sp.product_id,
             code: sp.code,
             name: sp.name,
             bottle_size: sp.simple_bottle_size,
@@ -325,7 +325,7 @@ export default function EditOrderPage() {
           (sp.variations || []).forEach((v: any) => {
             flatProducts.push({
               id: v.variation_id,
-              sellable_product_id: sp.sellable_product_id,
+              product_id: sp.product_id,
               code: `${sp.code}-${v.bottle_size}`,
               name: `${sp.name} (${v.bottle_size})`,
               bottle_size: v.bottle_size,
@@ -468,7 +468,7 @@ export default function EditOrderPage() {
 
     const newProduct: BranchProduct = {
       variation_id: product.id,
-      sellable_product_id: product.sellable_product_id,
+      product_id: product.product_id,
       product_code: product.code,
       product_name: product.name,
       bottle_size: product.bottle_size,
@@ -599,7 +599,7 @@ export default function EditOrderPage() {
       const items = branchOrders.flatMap(branch =>
         branch.products.map(product => ({
           variation_id: product.variation_id,
-          sellable_product_id: product.sellable_product_id,
+          product_id: product.product_id,
           product_code: product.product_code,
           product_name: product.product_name,
           bottle_size: product.bottle_size,
@@ -892,17 +892,17 @@ export default function EditOrderPage() {
                 {/* Products Table */}
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead className="bg-gray-50 border-b">
+                    <thead className="data-thead">
                       <tr>
-                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">สินค้า</th>
-                        <th className="px-4 py-2 text-center text-sm font-medium text-gray-700 w-24">จำนวน</th>
-                        <th className="px-4 py-2 text-right text-sm font-medium text-gray-700 w-32">ราคา/หน่วย</th>
-                        <th className="px-4 py-2 text-center text-sm font-medium text-gray-700 w-24">ส่วนลด%</th>
-                        <th className="px-4 py-2 text-right text-sm font-medium text-gray-700 w-32">รวม</th>
-                        <th className="px-4 py-2 text-center text-sm font-medium text-gray-700 w-16">ลบ</th>
+                        <th className="data-th">สินค้า</th>
+                        <th className="data-th text-center w-24">จำนวน</th>
+                        <th className="data-th text-right w-32">ราคา/หน่วย</th>
+                        <th className="data-th text-center w-24">ส่วนลด%</th>
+                        <th className="data-th text-right w-32">รวม</th>
+                        <th className="data-th text-center w-16">ลบ</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y">
+                    <tbody className="data-tbody">
                       {branch.products.map((product, productIndex) => (
                         <tr key={product.variation_id}>
                           <td className="px-4 py-3">

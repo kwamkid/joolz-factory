@@ -14,6 +14,9 @@ import {
   Loader2,
   Trash2,
   ChevronRight,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 
 // Order interface
@@ -428,37 +431,20 @@ export default function OrdersPage() {
   const goToNextPage = () => setCurrentPage(prev => Math.min(totalPages, prev + 1));
   const goToPage = (page: number) => setCurrentPage(page);
 
-  // Generate page numbers to display
+  // Generate page numbers to display (compact: current +-1, ..., last)
   const getPageNumbers = () => {
     const pages: (number | string)[] = [];
-    const maxPagesToShow = 5;
 
-    if (totalPages <= maxPagesToShow) {
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
-      }
+    if (totalPages <= 3) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
     } else {
-      if (currentPage <= 3) {
-        for (let i = 1; i <= 4; i++) {
-          pages.push(i);
-        }
-        pages.push('...');
-        pages.push(totalPages);
-      } else if (currentPage >= totalPages - 2) {
-        pages.push(1);
-        pages.push('...');
-        for (let i = totalPages - 3; i <= totalPages; i++) {
-          pages.push(i);
-        }
-      } else {
-        pages.push(1);
-        pages.push('...');
-        pages.push(currentPage - 1);
-        pages.push(currentPage);
-        pages.push(currentPage + 1);
-        pages.push('...');
-        pages.push(totalPages);
-      }
+      const start = Math.max(1, currentPage - 1);
+      const end = Math.min(totalPages, currentPage + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (end < totalPages - 1) pages.push('...');
+      if (end < totalPages) pages.push(totalPages);
+      if (start > 2) pages.unshift('...');
+      if (start > 1) pages.unshift(1);
     }
 
     return pages;
@@ -500,7 +486,7 @@ export default function OrdersPage() {
         )}
 
         {/* Filters Section */}
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="data-filter-card">
           <div className="space-y-3">
             {/* Row 1: Search + Date Range */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -614,68 +600,37 @@ export default function OrdersPage() {
         </div>
 
         {/* Orders Table */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          {/* Table Controls - Top */}
-          <div className="px-6 py-3 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">แสดง</span>
-              <select
-                value={recordsPerPage}
-                onChange={(e) => {
-                  setRecordsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-              >
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-              <span className="text-sm text-gray-600">รายการ/หน้า</span>
-            </div>
-            <div className="text-sm text-gray-600">
-              {totalRecords > 0 ? (
-                <>
-                  <span className="font-medium">{startIndex + 1}-{endIndex}</span>
-                  {' / '}
-                  <span className="font-medium">{totalRecords}</span>
-                </>
-              ) : (
-                <span>0 / 0</span>
-              )}
-            </div>
-          </div>
-
+        <div className="data-table-wrap">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="data-thead">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="data-th">
                     เลขที่คำสั่งซื้อ
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="data-th">
                     ลูกค้า
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="data-th">
                     รายการ/สาขา
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="data-th">
                     ยอดรวม
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="data-th">
                     สถานะคำสั่งซื้อ
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="data-th">
                     สถานะการชำระ
                   </th>
                   {userProfile?.role === 'admin' && (
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="data-th text-right">
                       จัดการ
                     </th>
                   )}
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="data-tbody">
                 {displayedOrders.length === 0 ? (
                   <tr>
                     <td colSpan={userProfile?.role === 'admin' ? 7 : 6} className="px-6 py-12 text-center text-gray-500">
@@ -687,7 +642,7 @@ export default function OrdersPage() {
                     <tr
                       key={order.id}
                       onClick={() => router.push(`/orders/${order.id}`)}
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                      className="data-tr cursor-pointer"
                     >
                       {/* เลขที่คำสั่งซื้อ */}
                       <td className="px-6 py-4">
@@ -802,92 +757,65 @@ export default function OrdersPage() {
             </table>
           </div>
 
-          {/* Pagination Controls - Bottom */}
-          {totalPages > 1 && (
-            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between bg-gray-50">
-              {/* Records info */}
-              <div className="text-sm text-gray-600">
-                {totalRecords > 0 ? (
-                  <>
-                    แสดง{' '}
-                    <span className="font-medium">{startIndex + 1}-{endIndex}</span>
-                    {' จาก '}
-                    <span className="font-medium">{totalRecords}</span>
-                    {' รายการ'}
-                  </>
-                ) : (
-                  <span>ไม่มีรายการ</span>
-                )}
+          {/* Pagination */}
+          {totalRecords > 0 && (
+            <div className="data-pagination">
+              <div className="flex items-center gap-1 text-sm text-gray-600">
+                <span>{startIndex + 1} - {endIndex} จาก {totalRecords} รายการ</span>
+                <select
+                  value={recordsPerPage}
+                  onChange={(e) => {
+                    setRecordsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="mx-1 px-1 py-0.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
+                >
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>/หน้า</span>
               </div>
-
-              {/* Pagination buttons */}
-              <div className="flex items-center gap-2">
-                {/* First page */}
-                <button
-                  onClick={goToFirstPage}
-                  disabled={currentPage === 1}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  title="หน้าแรก"
-                >
-                  «
-                </button>
-
-                {/* Previous page */}
-                <button
-                  onClick={goToPreviousPage}
-                  disabled={currentPage === 1}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  title="หน้าก่อนหน้า"
-                >
-                  ‹
-                </button>
-
-                {/* Page numbers */}
-                <div className="flex items-center gap-1">
-                  {getPageNumbers().map((page, index) => {
-                    if (page === '...') {
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button onClick={goToFirstPage} disabled={currentPage === 1} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าแรก">
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+                  <button onClick={goToPreviousPage} disabled={currentPage === 1} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าก่อน">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {getPageNumbers().map((page, index) => {
+                      if (page === '...') {
+                        return (
+                          <span key={`ellipsis-${index}`} className="px-2 text-gray-500">
+                            ...
+                          </span>
+                        );
+                      }
                       return (
-                        <span key={`ellipsis-${index}`} className="px-2 text-gray-500">
-                          ...
-                        </span>
+                        <button
+                          key={page}
+                          onClick={() => goToPage(page as number)}
+                          className={`w-8 h-8 rounded text-sm font-medium ${
+                            currentPage === page
+                              ? 'bg-[#E9B308] text-[#00231F]'
+                              : 'hover:bg-gray-100 text-gray-700'
+                          }`}
+                        >
+                          {page}
+                        </button>
                       );
-                    }
-                    return (
-                      <button
-                        key={page}
-                        onClick={() => goToPage(page as number)}
-                        className={`px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors ${
-                          currentPage === page
-                            ? 'bg-[#E9B308] border-[#E9B308] text-[#00231F]'
-                            : 'border-gray-300 hover:bg-gray-100'
-                        }`}
-                      >
-                        {page}
-                      </button>
-                    );
-                  })}
+                    })}
+                  </div>
+                  <button onClick={goToNextPage} disabled={currentPage === totalPages} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าถัดไป">
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button onClick={goToLastPage} disabled={currentPage === totalPages} className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" title="หน้าสุดท้าย">
+                    <ChevronsRight className="w-4 h-4" />
+                  </button>
                 </div>
-
-                {/* Next page */}
-                <button
-                  onClick={goToNextPage}
-                  disabled={currentPage === totalPages}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  title="หน้าถัดไป"
-                >
-                  ›
-                </button>
-
-                {/* Last page */}
-                <button
-                  onClick={goToLastPage}
-                  disabled={currentPage === totalPages}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  title="หน้าสุดท้าย"
-                >
-                  »
-                </button>
-              </div>
+              )}
             </div>
           )}
         </div>

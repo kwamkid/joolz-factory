@@ -8,11 +8,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import {
   Home,
-  Factory,
-  Package,
   Users,
-  Droplets,
-  Leaf,
   UserCircle,
   ShoppingCart,
   DollarSign,
@@ -20,15 +16,9 @@ import {
   Settings,
   Menu,
   X,
-  ChevronRight,
   LogOut,
-  Box,
-  ArrowUpDown,
   FileText,
-  ClipboardList,
-  Boxes,
   Package2,
-  Wine,
   Truck,
   UserCheck,
   MessageCircle
@@ -92,8 +82,8 @@ const menuSections: MenuSection[] = [
         roles: ['admin', 'manager', 'sales']
       },
       {
-        label: 'สินค้าพร้อมขาย',
-        href: '/sellable-products',
+        label: 'สินค้า',
+        href: '/products',
         icon: <Package2 className="w-5 h-5" />,
         roles: ['admin', 'manager', 'sales']
       }
@@ -117,9 +107,7 @@ const menuSections: MenuSection[] = [
       }
     ]
   }
-  // TODO: ระบบการผลิต - Production System (จะแยกออกเป็นระบบต่างหากภายหลัง)
-  // - การผลิต, สต็อกขวด, สต็อกวัตถุดิบ, ซัพพลายเออร์
-  // - มี role แยก: production (ฝ่ายผลิต) ไม่เห็น Sales เลย
+  // TODO: ระบบการผลิต - จะเพิ่มภายหลัง
 ];
 
 export default function Sidebar() {
@@ -198,7 +186,6 @@ export default function Sidebar() {
                   <p className="text-[#E9B308] text-xs">
                     {userProfile.role === 'admin' && 'ผู้ดูแลระบบ'}
                     {userProfile.role === 'manager' && 'ผู้จัดการ'}
-                    {userProfile.role === 'operation' && 'พนักงานผลิต'}
                     {userProfile.role === 'sales' && 'ฝ่ายขาย'}
                   </p>
                 </div>
