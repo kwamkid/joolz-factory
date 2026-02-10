@@ -138,7 +138,9 @@ export default function OrderForm({
     startDate: null,
     endDate: null,
   });
-  const deliveryDate = deliveryDateValue?.startDate ? String(deliveryDateValue.startDate) : '';
+  const deliveryDate = deliveryDateValue?.startDate
+    ? new Date(deliveryDateValue.startDate).toISOString().split('T')[0]
+    : '';
   const [notes, setNotes] = useState('');
   const [internalNotes, setInternalNotes] = useState('');
   const [orderDiscount, setOrderDiscount] = useState(0);
@@ -661,6 +663,7 @@ export default function OrderForm({
     e.preventDefault();
 
     if (!selectedCustomer) { setError('กรุณาเลือกลูกค้า'); return; }
+    if (!deliveryDate) { setError('กรุณาเลือกวันที่ส่งของ'); return; }
     if (branchOrders.length === 0) { setError('กรุณาเพิ่มอย่างน้อย 1 สาขา'); return; }
     for (let i = 0; i < branchOrders.length; i++) {
       if (branchOrders[i].products.length === 0) {

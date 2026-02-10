@@ -58,7 +58,8 @@ function OrderStatusBadge({ status, clickable = false }: { status: string; click
 function PaymentStatusBadge({ status, clickable = false }: { status: string; clickable?: boolean }) {
   const statusConfig = {
     pending: { label: 'รอชำระ', color: 'bg-orange-100 text-orange-700', hoverColor: 'hover:bg-orange-200' },
-    paid: { label: 'ชำระแล้ว', color: 'bg-green-100 text-green-700', hoverColor: '' }
+    paid: { label: 'ชำระแล้ว', color: 'bg-green-100 text-green-700', hoverColor: '' },
+    cancelled: { label: 'ยกเลิก', color: 'bg-red-100 text-red-700', hoverColor: '' }
   };
 
   const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;

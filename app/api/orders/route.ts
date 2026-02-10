@@ -724,20 +724,12 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Cancel order (set order_status to cancelled, keep payment_status as is or set to pending if not paid)
-    // First get current payment status
-    const { data: currentOrder } = await supabaseAdmin
-      .from('orders')
-      .select('payment_status')
-      .eq('id', orderId)
-      .single();
-
+    // Cancel order - set both order_status and payment_status to cancelled
     const { error } = await supabaseAdmin
       .from('orders')
       .update({
         order_status: 'cancelled',
-        // If not paid, set to pending (cancelled orders shouldn't show as "รอชำระ" in UI)
-        payment_status: currentOrder?.payment_status === 'paid' ? 'paid' : 'pending',
+        payment_status: 'cancelled',
         updated_at: new Date().toISOString()
       })
       .eq('id', orderId);

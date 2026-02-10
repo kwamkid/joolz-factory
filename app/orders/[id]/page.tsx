@@ -124,7 +124,8 @@ function OrderStatusBadge({ status }: { status: string }) {
 function PaymentStatusBadge({ status }: { status: string }) {
   const statusConfig = {
     pending: { label: 'รอชำระ', color: 'bg-orange-100 text-orange-700' },
-    paid: { label: 'ชำระแล้ว', color: 'bg-green-100 text-green-700' }
+    paid: { label: 'ชำระแล้ว', color: 'bg-green-100 text-green-700' },
+    cancelled: { label: 'ยกเลิก', color: 'bg-red-100 text-red-700' }
   };
 
   const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;
@@ -291,9 +292,11 @@ export default function OrderDetailPage() {
       // Update local state
       setOrder({
         ...order,
-        order_status: 'cancelled'
+        order_status: 'cancelled',
+        payment_status: 'cancelled'
       });
       setTempOrderStatus('cancelled');
+      setTempPaymentStatus('cancelled');
 
       // Show success modal
       setIsSuccess(true);
@@ -579,7 +582,12 @@ export default function OrderDetailPage() {
               </label>
               <select
                 value={tempOrderStatus}
-                onChange={(e) => setTempOrderStatus(e.target.value)}
+                onChange={(e) => {
+                  setTempOrderStatus(e.target.value);
+                  if (e.target.value === 'cancelled') {
+                    setTempPaymentStatus('cancelled');
+                  }
+                }}
                 disabled={updating}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -596,11 +604,12 @@ export default function OrderDetailPage() {
               <select
                 value={tempPaymentStatus}
                 onChange={(e) => setTempPaymentStatus(e.target.value)}
-                disabled={updating}
+                disabled={updating || tempOrderStatus === 'cancelled'}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <option value="pending">รอชำระ</option>
                 <option value="paid">ชำระแล้ว</option>
+                {tempOrderStatus === 'cancelled' && <option value="cancelled">ยกเลิก</option>}
               </select>
 
               {/* Display Payment Record Details (if already paid) */}

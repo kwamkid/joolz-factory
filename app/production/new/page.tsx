@@ -158,7 +158,9 @@ export default function NewProductionPage() {
     startDate: new Date(),
     endDate: new Date(),
   });
-  const plannedDate = plannedDateValue?.startDate ? String(plannedDateValue.startDate) : '';
+  const plannedDate = plannedDateValue?.startDate
+    ? new Date(plannedDateValue.startDate).toISOString().split('T')[0]
+    : '';
   const [notes, setNotes] = useState<string>('');
   const [generatedBatchId, setGeneratedBatchId] = useState<string>('');
 
@@ -172,8 +174,12 @@ export default function NewProductionPage() {
     startDate: getDefaultTomorrow(),
     endDate: getDefaultTomorrow(),
   });
-  const orderStartDate = orderDateRange?.startDate ? String(orderDateRange.startDate) : '';
-  const orderEndDate = orderDateRange?.endDate ? String(orderDateRange.endDate) : '';
+  const orderStartDate = orderDateRange?.startDate
+    ? new Date(orderDateRange.startDate).toISOString().split('T')[0]
+    : '';
+  const orderEndDate = orderDateRange?.endDate
+    ? new Date(orderDateRange.endDate).toISOString().split('T')[0]
+    : '';
 
   // Product search state (per item)
   const [productSearches, setProductSearches] = useState<Record<string, string>>({});

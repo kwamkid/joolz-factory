@@ -568,6 +568,11 @@ export default function EditOrderPage() {
       return;
     }
 
+    if (!deliveryDate) {
+      setError('กรุณาเลือกวันที่ส่งของ');
+      return;
+    }
+
     if (branchOrders.length === 0) {
       setError('กรุณาเพิ่มอย่างน้อย 1 สาขา');
       return;
