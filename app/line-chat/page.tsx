@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
@@ -120,7 +120,7 @@ interface DayRange {
   color: string;
 }
 
-export default function LineChatPage() {
+function LineChatPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { userProfile, loading: authLoading } = useAuth();
@@ -2671,5 +2671,17 @@ export default function LineChatPage() {
       )}
 
     </Layout>
+  );
+}
+
+export default function LineChatPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="w-8 h-8 text-[#E9B308] animate-spin" />
+      </div>
+    }>
+      <LineChatPageContent />
+    </Suspense>
   );
 }
