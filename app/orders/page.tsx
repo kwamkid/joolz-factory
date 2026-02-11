@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
@@ -13,10 +13,19 @@ import {
   Search,
   Loader2,
   Trash2,
+  Edit2,
+  Phone,
+  Columns3,
   ChevronRight,
   ChevronLeft,
   ChevronsLeft,
   ChevronsRight,
+  Link2,
+  CheckCircle,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  X,
 } from 'lucide-react';
 
 // Order interface
@@ -24,6 +33,7 @@ interface Order {
   id: string;
   order_number: string;
   order_date: string;
+  created_at: string;
   delivery_date?: string;
   total_amount: number;
   payment_status: string;
@@ -37,6 +47,33 @@ interface Order {
   item_count: number;
   branch_count: number;
   branch_names?: string[];
+}
+
+// Column toggle system
+type ColumnKey = 'orderInfo' | 'deliveryDate' | 'customer' | 'branches' | 'total' | 'status' | 'payment' | 'actions';
+
+interface ColumnConfig {
+  key: ColumnKey;
+  label: string;
+  defaultVisible: boolean;
+  alwaysVisible?: boolean;
+}
+
+const COLUMN_CONFIGS: ColumnConfig[] = [
+  { key: 'orderInfo', label: 'คำสั่งซื้อ', defaultVisible: true, alwaysVisible: true },
+  { key: 'deliveryDate', label: 'วันจัดส่ง', defaultVisible: true },
+  { key: 'customer', label: 'ลูกค้า', defaultVisible: true },
+  { key: 'branches', label: 'สาขา', defaultVisible: true },
+  { key: 'total', label: 'ยอดรวม', defaultVisible: true },
+  { key: 'status', label: 'สถานะ', defaultVisible: true },
+  { key: 'payment', label: 'การชำระ', defaultVisible: true },
+  { key: 'actions', label: 'จัดการ', defaultVisible: true, alwaysVisible: true },
+];
+
+const ORDERS_STORAGE_KEY = 'orders-visible-columns';
+
+function getDefaultColumns(): ColumnKey[] {
+  return COLUMN_CONFIGS.filter(c => c.defaultVisible).map(c => c.key);
 }
 
 // Status badge components
@@ -61,6 +98,7 @@ function OrderStatusBadge({ status, clickable = false }: { status: string; click
 function PaymentStatusBadge({ status, clickable = false }: { status: string; clickable?: boolean }) {
   const statusConfig = {
     pending: { label: 'รอชำระ', color: 'bg-orange-100 text-orange-700', hoverColor: 'hover:bg-orange-200' },
+    verifying: { label: 'รอตรวจสอบ', color: 'bg-purple-100 text-purple-700', hoverColor: '' },
     paid: { label: 'ชำระแล้ว', color: 'bg-green-100 text-green-700', hoverColor: '' },
     cancelled: { label: 'ยกเลิก', color: 'bg-red-100 text-red-700', hoverColor: '' }
   };
@@ -78,6 +116,42 @@ function PaymentStatusBadge({ status, clickable = false }: { status: string; cli
 export default function OrdersPage() {
   const router = useRouter();
   const { userProfile, loading: authLoading } = useAuth();
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(ORDERS_STORAGE_KEY);
+      if (stored) {
+        try { return new Set(JSON.parse(stored) as ColumnKey[]); } catch { /* defaults */ }
+      }
+    }
+    return new Set(getDefaultColumns());
+  });
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const columnSettingsRef = useRef<HTMLDivElement>(null);
+
+  // Close column settings on click outside
+  useEffect(() => {
+    if (!showColumnSettings) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (columnSettingsRef.current && !columnSettingsRef.current.contains(e.target as Node)) {
+        setShowColumnSettings(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showColumnSettings]);
+
+  const toggleColumn = (key: ColumnKey) => {
+    const config = COLUMN_CONFIGS.find(c => c.key === key);
+    if (config?.alwaysVisible) return;
+    setVisibleColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +195,27 @@ export default function OrdersPage() {
   const [totalOrders, setTotalOrders] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [toast, setToast] = useState('');
+
+  // Sort state
+  const [sortBy, setSortBy] = useState<string>('created_at');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // Status counts from API (independent of current filter)
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({ all: 0, new: 0, shipping: 0, completed: 0, cancelled: 0 });
+  const [paymentCounts, setPaymentCounts] = useState<Record<string, number>>({ all: 0, pending: 0, verifying: 0, paid: 0, cancelled: 0 });
+
+  // Close modal on ESC key
+  useEffect(() => {
+    if (!statusUpdateModal.show) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setStatusUpdateModal({ show: false, order: null, nextStatus: '', statusType: 'order' });
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [statusUpdateModal.show]);
 
   // Debounce search term (300ms delay)
   useEffect(() => {
@@ -141,7 +236,7 @@ export default function OrdersPage() {
     if (!authLoading && userProfile) {
       fetchOrders();
     }
-  }, [authLoading, userProfile, currentPage, recordsPerPage, statusFilter, paymentFilter, debouncedSearch]);
+  }, [authLoading, userProfile, currentPage, recordsPerPage, statusFilter, paymentFilter, debouncedSearch, sortBy, sortDir]);
 
   const fetchOrders = async () => {
     try {
@@ -156,6 +251,8 @@ export default function OrdersPage() {
       const params = new URLSearchParams();
       params.set('page', currentPage.toString());
       params.set('limit', recordsPerPage.toString());
+      params.set('sort_by', sortBy);
+      params.set('sort_dir', sortDir);
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (paymentFilter !== 'all') params.set('payment_status', paymentFilter);
       if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
@@ -174,6 +271,8 @@ export default function OrdersPage() {
       setOrders(result.orders || []);
       setTotalOrders(result.pagination?.total || 0);
       setTotalPages(result.pagination?.totalPages || 0);
+      if (result.statusCounts) setStatusCounts(result.statusCounts);
+      if (result.paymentCounts) setPaymentCounts(result.paymentCounts);
     } catch (error) {
       console.error('Error fetching orders:', error);
       setError('ไม่สามารถโหลดข้อมูลคำสั่งซื้อได้');
@@ -212,6 +311,7 @@ export default function OrdersPage() {
   const getPaymentStatusLabel = (status: string): string => {
     const labels: { [key: string]: string } = {
       'pending': 'รอชำระ',
+      'verifying': 'รอตรวจสอบ',
       'paid': 'ชำระแล้ว'
     };
     return labels[status] || status;
@@ -403,14 +503,23 @@ export default function OrdersPage() {
     return true;
   };
 
-  // Calculate filtered counts for each status
-  const getFilteredCount = (status: string | null = null) => {
-    return orders.filter(order => {
-      const matchesPayment = paymentFilter === 'all' || order.payment_status === paymentFilter;
-      const matchesDate = checkDateFilter(order);
-      const matchesStatus = status === null || order.order_status === status;
-      return matchesPayment && matchesDate && matchesStatus;
-    }).length;
+  // Toggle sort column
+  const handleSort = (column: string) => {
+    if (sortBy === column) {
+      setSortDir(prev => prev === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortBy(column);
+      setSortDir('desc');
+    }
+    setCurrentPage(1);
+  };
+
+  // Sort icon component
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortBy !== column) return <ArrowUpDown className="w-3 h-3 text-gray-400" />;
+    return sortDir === 'asc'
+      ? <ArrowUp className="w-3 h-3 text-[#E9B308]" />
+      : <ArrowDown className="w-3 h-3 text-[#E9B308]" />;
   };
 
   // Client-side date filter only (server doesn't support date range yet)
@@ -489,114 +598,111 @@ export default function OrdersPage() {
         <div className="data-filter-card">
           <div className="space-y-3">
             {/* Row 1: Search + Date Range */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="relative">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="ค้นหาเลขที่, ชื่อลูกค้า, รหัส..."
+                  placeholder="ค้นหาเลขที่, ชื่อลูกค้า..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
                 />
               </div>
-              <DateRangePicker
-                value={deliveryDateRange}
-                onChange={(val) => setDeliveryDateRange(val)}
-                placeholder="วันที่ส่ง - ทั้งหมด"
-              />
+              <div className="w-64 flex-shrink-0">
+                <DateRangePicker
+                  value={deliveryDateRange}
+                  onChange={(val) => setDeliveryDateRange(val)}
+                  placeholder="วันที่ส่ง - ทั้งหมด"
+                />
+              </div>
+              <div className="relative" ref={columnSettingsRef}>
+                <button
+                  onClick={() => setShowColumnSettings(!showColumnSettings)}
+                  className="btn-filter-icon"
+                  title="ตั้งค่าคอลัมน์"
+                >
+                  <Columns3 className="w-5 h-5 text-gray-500" />
+                </button>
+                {showColumnSettings && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1">
+                    <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase border-b border-gray-100">
+                      แสดงคอลัมน์
+                    </div>
+                    {COLUMN_CONFIGS.filter(c => !c.alwaysVisible).map(col => (
+                      <label key={col.key} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={visibleColumns.has(col.key)}
+                          onChange={() => toggleColumn(col.key)}
+                          className="w-3.5 h-3.5 text-[#E9B308] border-gray-300 rounded focus:ring-[#E9B308]"
+                        />
+                        <span className="text-sm text-gray-700">{col.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Row 2: Order Status Pills + Payment Status Pills */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Order Status */}
-              <button
-                onClick={() => setStatusFilter('all')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  statusFilter === 'all'
-                    ? 'bg-gray-700 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                ทั้งหมด {getFilteredCount()}
-              </button>
-              <button
-                onClick={() => setStatusFilter('new')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  statusFilter === 'new'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
-                }`}
-              >
-                ใหม่ {getFilteredCount('new')}
-              </button>
-              <button
-                onClick={() => setStatusFilter('shipping')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  statusFilter === 'shipping'
-                    ? 'bg-yellow-500 text-white'
-                    : 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
-                }`}
-              >
-                กำลังส่ง {getFilteredCount('shipping')}
-              </button>
-              <button
-                onClick={() => setStatusFilter('completed')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  statusFilter === 'completed'
-                    ? 'bg-green-500 text-white'
-                    : 'bg-green-50 text-green-700 hover:bg-green-100'
-                }`}
-              >
-                สำเร็จ {getFilteredCount('completed')}
-              </button>
-              <button
-                onClick={() => setStatusFilter('cancelled')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  statusFilter === 'cancelled'
-                    ? 'bg-red-500 text-white'
-                    : 'bg-red-50 text-red-700 hover:bg-red-100'
-                }`}
-              >
-                ยกเลิก {getFilteredCount('cancelled')}
-              </button>
-
-              {/* Divider */}
-              <div className="w-px h-5 bg-gray-300 mx-1 hidden md:block" />
-
-              {/* Payment Status */}
-              <button
-                onClick={() => setPaymentFilter('all')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  paymentFilter === 'all'
-                    ? 'bg-gray-700 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                ชำระ: ทั้งหมด
-              </button>
-              <button
-                onClick={() => setPaymentFilter('pending')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  paymentFilter === 'pending'
-                    ? 'bg-orange-500 text-white'
-                    : 'bg-orange-50 text-orange-700 hover:bg-orange-100'
-                }`}
-              >
-                รอชำระ
-              </button>
-              <button
-                onClick={() => setPaymentFilter('paid')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  paymentFilter === 'paid'
-                    ? 'bg-green-500 text-white'
-                    : 'bg-green-50 text-green-700 hover:bg-green-100'
-                }`}
-              >
-                ชำระแล้ว
-              </button>
-            </div>
           </div>
+        </div>
+
+        {/* Order Status Filter Cards */}
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {/* Order Status */}
+          {[
+            { key: 'all', label: 'ทั้งหมด', active: 'bg-indigo-600 border-indigo-600 ring-indigo-600/30', inactive: 'bg-indigo-50 border-indigo-200 hover:border-indigo-300', labelColor: 'text-indigo-600', countColor: 'text-indigo-700' },
+            { key: 'new', label: 'ใหม่', active: 'bg-blue-600 border-blue-600 ring-blue-600/30', inactive: 'bg-blue-50 border-blue-200 hover:border-blue-300', labelColor: 'text-blue-600', countColor: 'text-blue-700' },
+            { key: 'shipping', label: 'กำลังส่ง', active: 'bg-amber-500 border-amber-500 ring-amber-500/30', inactive: 'bg-amber-50 border-amber-200 hover:border-amber-300', labelColor: 'text-amber-600', countColor: 'text-amber-700' },
+            { key: 'completed', label: 'สำเร็จ', active: 'bg-emerald-600 border-emerald-600 ring-emerald-600/30', inactive: 'bg-emerald-50 border-emerald-200 hover:border-emerald-300', labelColor: 'text-emerald-600', countColor: 'text-emerald-700' },
+            { key: 'cancelled', label: 'ยกเลิก', active: 'bg-gray-500 border-gray-500 ring-gray-500/30', inactive: 'bg-gray-100 border-gray-200 hover:border-gray-300', labelColor: 'text-gray-500', countColor: 'text-gray-600' },
+          ].map((s) => {
+            const isActive = statusFilter === s.key;
+            const count = statusCounts[s.key] || 0;
+            return (
+              <button
+                key={s.key}
+                onClick={() => setStatusFilter(s.key)}
+                className={`flex-shrink-0 rounded-xl border-2 px-4 py-2 min-w-[80px] text-center transition-all ${
+                  isActive
+                    ? `${s.active} text-white shadow-md ring-2 ring-offset-1`
+                    : `${s.inactive} hover:shadow-sm`
+                }`}
+              >
+                <div className={`text-xs font-medium ${isActive ? 'text-white/80' : s.labelColor}`}>{s.label}</div>
+                <div className={`text-xl font-bold ${isActive ? 'text-white' : s.countColor}`}>{count}</div>
+              </button>
+            );
+          })}
+
+          {/* Divider */}
+          <div className="w-px bg-gray-300 self-stretch flex-shrink-0 mx-1" />
+
+          {/* Payment Status — tonal shift to warm/slate */}
+          {[
+            { key: 'all', label: 'ชำระทั้งหมด', active: 'bg-slate-600 border-slate-600 ring-slate-600/30', inactive: 'bg-slate-50 border-slate-200 hover:border-slate-300', labelColor: 'text-slate-500', countColor: 'text-slate-700' },
+            { key: 'pending', label: 'รอชำระ', active: 'bg-orange-500 border-orange-500 ring-orange-500/30', inactive: 'bg-orange-50 border-orange-200 hover:border-orange-300', labelColor: 'text-orange-500', countColor: 'text-orange-700' },
+            { key: 'verifying', label: 'รอตรวจสอบ', active: 'bg-purple-500 border-purple-500 ring-purple-500/30', inactive: 'bg-purple-50 border-purple-200 hover:border-purple-300', labelColor: 'text-purple-500', countColor: 'text-purple-700' },
+            { key: 'paid', label: 'ชำระแล้ว', active: 'bg-teal-600 border-teal-600 ring-teal-600/30', inactive: 'bg-teal-50 border-teal-200 hover:border-teal-300', labelColor: 'text-teal-600', countColor: 'text-teal-700' },
+          ].map((s) => {
+            const isActive = paymentFilter === s.key;
+            const count = paymentCounts[s.key] || 0;
+            return (
+              <button
+                key={`pay-${s.key}`}
+                onClick={() => setPaymentFilter(s.key)}
+                className={`flex-shrink-0 rounded-xl border-2 px-4 py-2 min-w-[80px] text-center transition-all ${
+                  isActive
+                    ? `${s.active} text-white shadow-md ring-2 ring-offset-1`
+                    : `${s.inactive} hover:shadow-sm`
+                }`}
+              >
+                <div className={`text-xs font-medium ${isActive ? 'text-white/80' : s.labelColor}`}>{s.label}</div>
+                <div className={`text-xl font-bold ${isActive ? 'text-white' : s.countColor}`}>{count}</div>
+              </button>
+            );
+          })}
         </div>
 
         {/* Orders Table */}
@@ -605,35 +711,32 @@ export default function OrdersPage() {
             <table className="w-full">
               <thead className="data-thead">
                 <tr>
-                  <th className="data-th">
-                    เลขที่คำสั่งซื้อ
-                  </th>
-                  <th className="data-th">
-                    ลูกค้า
-                  </th>
-                  <th className="data-th">
-                    รายการ/สาขา
-                  </th>
-                  <th className="data-th">
-                    ยอดรวม
-                  </th>
-                  <th className="data-th">
-                    สถานะคำสั่งซื้อ
-                  </th>
-                  <th className="data-th">
-                    สถานะการชำระ
-                  </th>
-                  {userProfile?.role === 'admin' && (
-                    <th className="data-th text-right">
-                      จัดการ
+                  {visibleColumns.has('orderInfo') && (
+                    <th className="data-th cursor-pointer select-none" onClick={() => handleSort('created_at')}>
+                      <div className="flex items-center gap-1">คำสั่งซื้อ <SortIcon column="created_at" /></div>
                     </th>
                   )}
+                  {visibleColumns.has('deliveryDate') && (
+                    <th className="data-th whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('delivery_date')}>
+                      <div className="flex items-center gap-1">วันจัดส่ง <SortIcon column="delivery_date" /></div>
+                    </th>
+                  )}
+                  {visibleColumns.has('customer') && <th className="data-th">ลูกค้า</th>}
+                  {visibleColumns.has('branches') && <th className="data-th">สาขา</th>}
+                  {visibleColumns.has('total') && (
+                    <th className="data-th text-right cursor-pointer select-none" onClick={() => handleSort('total_amount')}>
+                      <div className="flex items-center gap-1 justify-end">ยอดรวม <SortIcon column="total_amount" /></div>
+                    </th>
+                  )}
+                  {visibleColumns.has('status') && <th className="data-th">สถานะ</th>}
+                  {visibleColumns.has('payment') && <th className="data-th whitespace-nowrap">การชำระ</th>}
+                  {visibleColumns.has('actions') && <th className="data-th text-center">จัดการ</th>}
                 </tr>
               </thead>
               <tbody className="data-tbody">
                 {displayedOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={userProfile?.role === 'admin' ? 7 : 6} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={visibleColumns.size} className="px-6 py-12 text-center text-gray-500">
                       {searchTerm || statusFilter !== 'all' || paymentFilter !== 'all' || deliveryDateRange?.startDate ? 'ไม่พบคำสั่งซื้อที่ค้นหา' : 'ยังไม่มีคำสั่งซื้อ'}
                     </td>
                   </tr>
@@ -644,109 +747,149 @@ export default function OrdersPage() {
                       onClick={() => router.push(`/orders/${order.id}`)}
                       className="data-tr cursor-pointer"
                     >
-                      {/* เลขที่คำสั่งซื้อ */}
-                      <td className="px-6 py-4">
-                        <div className="space-y-0.5">
-                          {/* วันที่ส่ง - prominent */}
+                      {/* คำสั่งซื้อ: order_number + วันเปิดบิล + เวลา */}
+                      {visibleColumns.has('orderInfo') && (
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{order.order_number}</div>
+                          <div className="text-xs text-gray-400">
+                            {new Date(order.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                            {' '}
+                            {new Date(order.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </td>
+                      )}
+
+                      {/* วันจัดส่ง */}
+                      {visibleColumns.has('deliveryDate') && (
+                        <td className="px-6 py-4 whitespace-nowrap">
                           {order.delivery_date ? (
-                            <div className="font-normal text-gray-900">
-                              {new Date(order.delivery_date).toLocaleDateString('th-TH', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric'
-                              })}
+                            <div className="text-sm text-gray-900">
+                              {new Date(order.delivery_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
                             </div>
                           ) : (
-                            <div className="font-normal text-gray-400">ไม่ระบุวันส่ง</div>
+                            <span className="text-xs text-gray-400">ไม่ระบุ</span>
                           )}
-                          {/* วันที่เปิดบิล - secondary */}
-                          <div className="text-sm text-gray-500">
-                            {new Date(order.order_date).toLocaleDateString('th-TH', {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric'
-                            })}
-                          </div>
-                          {/* หมายเลข order - secondary */}
-                          <div className="text-sm text-gray-500">{order.order_number}</div>
-                        </div>
-                      </td>
+                        </td>
+                      )}
 
-                      {/* ลูกค้า */}
-                      <td className="px-6 py-4">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{order.customer_name}</div>
-                          <div className="text-xs text-gray-500">{order.customer_code}</div>
-                        </div>
-                      </td>
-
-                      {/* รายการ/สาขา */}
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap gap-1.5">
-                          {order.branch_names && order.branch_names.length > 0 ? (
-                            order.branch_names.map((branchName, index) => (
-                              <span
-                                key={index}
-                                className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                      {/* ลูกค้า: ชื่อ (กดไปหน้า edit) + เบอร์โทร (กดโทร) */}
+                      {visibleColumns.has('customer') && (
+                        <td className="px-6 py-4">
+                          <div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); router.push(`/customers/${order.customer_id}`); }}
+                              className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline text-left"
+                            >
+                              {order.customer_name}
+                            </button>
+                            {order.customer_phone && (
+                              <a
+                                href={`tel:${order.customer_phone}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1 text-xs text-gray-500 hover:text-emerald-600 mt-0.5"
                               >
-                                {branchName}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-sm text-gray-400">ไม่มีข้อมูลสาขา</span>
-                          )}
-                        </div>
-                      </td>
+                                <Phone className="w-3 h-3" />
+                                {order.customer_phone}
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                      )}
+
+                      {/* สาขา */}
+                      {visibleColumns.has('branches') && (
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap gap-1.5">
+                            {order.branch_names && order.branch_names.length > 0 ? (
+                              order.branch_names.map((branchName, index) => (
+                                <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  {branchName}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
+                          </div>
+                        </td>
+                      )}
 
                       {/* ยอดรวม */}
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-semibold text-gray-900">
-                          ฿{order.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                        </div>
-                      </td>
+                      {visibleColumns.has('total') && (
+                        <td className="px-6 py-4 text-right">
+                          <div className="text-sm font-semibold text-gray-900">
+                            ฿{order.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </div>
+                        </td>
+                      )}
 
-                      {/* สถานะคำสั่งซื้อ */}
-                      <td className="px-6 py-4">
-                        {getNextOrderStatus(order.order_status) ? (
-                          <button
-                            onClick={(e) => handleOrderStatusClick(e, order)}
-                            title={`คลิกเพื่อเปลี่ยนเป็น "${getOrderStatusLabel(getNextOrderStatus(order.order_status) || '')}"`}
-                          >
-                            <OrderStatusBadge status={order.order_status} clickable />
-                          </button>
-                        ) : (
-                          <OrderStatusBadge status={order.order_status} />
-                        )}
-                      </td>
-
-                      {/* สถานะการชำระ */}
-                      <td className="px-6 py-4">
-                        {/* ถ้า order ถูกยกเลิก ไม่ต้องแสดงสถานะการชำระ */}
-                        {order.order_status === 'cancelled' ? (
-                          <span className="text-gray-400">-</span>
-                        ) : getNextPaymentStatus(order.payment_status) ? (
-                          <button
-                            onClick={(e) => handlePaymentStatusClick(e, order)}
-                            title={`คลิกเพื่อเปลี่ยนเป็น "${getPaymentStatusLabel(getNextPaymentStatus(order.payment_status) || '')}"`}
-                          >
-                            <PaymentStatusBadge status={order.payment_status} clickable />
-                          </button>
-                        ) : (
-                          <PaymentStatusBadge status={order.payment_status} />
-                        )}
-                      </td>
-
-                      {/* จัดการ (Admin only) */}
-                      {userProfile?.role === 'admin' && (
+                      {/* สถานะ */}
+                      {visibleColumns.has('status') && (
                         <td className="px-6 py-4">
-                          <div className="flex justify-end">
+                          {getNextOrderStatus(order.order_status) ? (
                             <button
-                              onClick={(e) => handleDeleteOrder(e, order)}
-                              className="text-red-600 hover:text-red-900 p-1"
-                              title="ลบ (Admin เท่านั้น)"
+                              onClick={(e) => handleOrderStatusClick(e, order)}
+                              title={`คลิกเพื่อเปลี่ยนเป็น "${getOrderStatusLabel(getNextOrderStatus(order.order_status) || '')}"`}
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <OrderStatusBadge status={order.order_status} clickable />
                             </button>
+                          ) : (
+                            <OrderStatusBadge status={order.order_status} />
+                          )}
+                        </td>
+                      )}
+
+                      {/* การชำระ */}
+                      {visibleColumns.has('payment') && (
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {order.order_status === 'cancelled' ? (
+                            <span className="text-gray-400">-</span>
+                          ) : getNextPaymentStatus(order.payment_status) ? (
+                            <button
+                              onClick={(e) => handlePaymentStatusClick(e, order)}
+                              title={`คลิกเพื่อเปลี่ยนเป็น "${getPaymentStatusLabel(getNextPaymentStatus(order.payment_status) || '')}"`}
+                            >
+                              <PaymentStatusBadge status={order.payment_status} clickable />
+                            </button>
+                          ) : (
+                            <PaymentStatusBadge status={order.payment_status} />
+                          )}
+                        </td>
+                      )}
+
+                      {/* จัดการ: edit (ทุก role) + delete (admin only) */}
+                      {visibleColumns.has('actions') && (
+                        <td className="px-6 py-4">
+                          <div className="flex justify-center gap-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const billUrl = `${window.location.origin}/bills/${order.id}`;
+                                navigator.clipboard.writeText(billUrl).then(() => {
+                                  setToast('คัดลอกลิงก์บิลออนไลน์แล้ว');
+                                  setTimeout(() => setToast(''), 2500);
+                                });
+                              }}
+                              className="text-gray-500 hover:text-[#E9B308] p-1"
+                              title="คัดลอกลิงก์บิลออนไลน์"
+                            >
+                              <Link2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); router.push(`/orders/${order.id}/edit`); }}
+                              className="text-blue-600 hover:text-blue-800 p-1"
+                              title="แก้ไขคำสั่งซื้อ"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            {userProfile?.role === 'admin' && (
+                              <button
+                                onClick={(e) => handleDeleteOrder(e, order)}
+                                className="text-red-600 hover:text-red-900 p-1"
+                                title="ลบ"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       )}
@@ -827,9 +970,17 @@ export default function OrdersPage() {
             onClick={() => setStatusUpdateModal({ show: false, order: null, nextStatus: '', statusType: 'order' })}
           >
             <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-lg font-semibold mb-4 text-gray-900">
-                ยืนยันการเปลี่ยน{statusUpdateModal.statusType === 'order' ? 'สถานะคำสั่งซื้อ' : 'สถานะการชำระเงิน'}
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  ยืนยันการเปลี่ยน{statusUpdateModal.statusType === 'order' ? 'สถานะคำสั่งซื้อ' : 'สถานะการชำระเงิน'}
+                </h3>
+                <button
+                  onClick={() => setStatusUpdateModal({ show: false, order: null, nextStatus: '', statusType: 'order' })}
+                  className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
 
               <div className="mb-6 space-y-3">
                 <p className="text-gray-700">
@@ -988,6 +1139,14 @@ export default function OrdersPage() {
         )}
 
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-5 py-3 rounded-lg shadow-lg flex items-center gap-2 text-sm animate-fade-in">
+          <CheckCircle className="w-4 h-4 text-green-400" />
+          {toast}
+        </div>
+      )}
     </Layout>
   );
 }

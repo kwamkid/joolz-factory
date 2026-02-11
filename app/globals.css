@@ -108,6 +108,13 @@
   line-height: 1.25rem;
 }
 
+/* Filter card inputs — consistent 14px */
+.data-filter-card input,
+.data-filter-card select {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
 /* Pagination per-page select compact */
 .data-pagination select {
   width: 4.5rem;

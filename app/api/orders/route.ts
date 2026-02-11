@@ -109,19 +109,33 @@ export async function POST(request: NextRequest) {
 
     // Calculate totals
     let subtotal = 0;
-    const itemsWithTotals = orderData.items.map(item => {
-      const discountPercent = item.discount_percent || 0;
+    const itemsWithTotals = orderData.items.map((item: any) => {
+      // Support both discount_percent (legacy) and discount_value/discount_type (new)
+      let discountPercent = 0;
+      let discountAmountItem = 0;
       const itemSubtotal = item.quantity * item.unit_price;
-      const discountAmountItem = itemSubtotal * (discountPercent / 100);
+
+      if (item.discount_type === 'amount' && item.discount_value) {
+        discountAmountItem = item.discount_value;
+        discountPercent = itemSubtotal > 0 ? (discountAmountItem / itemSubtotal) * 100 : 0;
+      } else {
+        discountPercent = item.discount_value || item.discount_percent || 0;
+        discountAmountItem = itemSubtotal * (discountPercent / 100);
+      }
+
       const itemTotal = itemSubtotal - discountAmountItem;
       subtotal += itemTotal;
       return {
         ...item,
+        discount_percent: discountPercent,
         discount_amount: discountAmountItem,
+        discount_type: item.discount_type || 'percent',
         subtotal: itemSubtotal,
         total: itemTotal
       };
     });
+
+    console.log('[CREATE ORDER] items count:', orderData.items.length, 'subtotal:', subtotal, 'items:', orderData.items.map((i: any) => ({ name: i.product_name, qty: i.quantity, price: i.unit_price, address: i.shipments?.[0]?.shipping_address_id })));
 
     // Calculate total shipping fee (deduplicated by address)
     const shippingFeeByAddress = new Map<string, number>();
@@ -135,8 +149,12 @@ export async function POST(request: NextRequest) {
     const totalShippingFee = Array.from(shippingFeeByAddress.values()).reduce((sum, f) => sum + f, 0);
 
     const discountAmount = orderData.discount_amount || 0;
-    const vatAmount = (subtotal - discountAmount) * 0.07; // 7% VAT
-    const totalAmount = subtotal - discountAmount + vatAmount + totalShippingFee;
+    // Prices are VAT-inclusive, so we reverse-calculate VAT from the total
+    const totalWithVAT = subtotal - discountAmount + totalShippingFee;
+    const subtotalBeforeVAT = Math.round((totalWithVAT / 1.07) * 100) / 100;
+    const vatAmount = totalWithVAT - subtotalBeforeVAT;
+    const totalAmount = totalWithVAT;
+    console.log('[CREATE ORDER] itemsSubtotal:', subtotal, 'discount:', discountAmount, 'shipping:', totalShippingFee, 'subtotalBeforeVAT:', subtotalBeforeVAT, 'vat:', vatAmount, 'TOTAL:', totalAmount);
 
     // Generate order number
     const { data: orderNumber, error: codeError } = await supabaseAdmin
@@ -157,7 +175,7 @@ export async function POST(request: NextRequest) {
         order_number: orderNumber,
         customer_id: orderData.customer_id,
         delivery_date: orderData.delivery_date || null,
-        subtotal,
+        subtotal: subtotalBeforeVAT,
         vat_amount: vatAmount,
         discount_amount: discountAmount,
         shipping_fee: totalShippingFee,
@@ -198,6 +216,7 @@ export async function POST(request: NextRequest) {
           unit_price: item.unit_price,
           discount_percent: item.discount_percent || 0,
           discount_amount: item.discount_amount,
+          discount_type: item.discount_type || 'percent',
           subtotal: item.subtotal,
           total: item.total,
           notes: item.notes || null,
@@ -218,7 +237,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Create shipments for this item
-      const shipmentsToInsert = item.shipments.map(shipment => ({
+      const shipmentsToInsert = item.shipments.map((shipment: any) => ({
         order_item_id: orderItem.id,
         shipping_address_id: shipment.shipping_address_id,
         quantity: shipment.quantity,
@@ -315,6 +334,42 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Fetch product images for all items
+      const variationIds = (items || []).map(i => i.variation_id).filter(Boolean);
+      const productIds = (items || []).map(i => i.product_id).filter(Boolean);
+      let imageMap: Record<string, string> = {};
+
+      if (variationIds.length > 0 || productIds.length > 0) {
+        const { data: images } = await supabaseAdmin
+          .from('product_images')
+          .select('product_id, variation_id, image_url, sort_order')
+          .or(
+            [
+              variationIds.length > 0 ? `variation_id.in.(${variationIds.join(',')})` : '',
+              productIds.length > 0 ? `product_id.in.(${productIds.join(',')})` : ''
+            ].filter(Boolean).join(',')
+          )
+          .order('sort_order', { ascending: true });
+
+        // Build map: prefer variation image, fallback to product image
+        const productImageMap: Record<string, string> = {};
+        const variationImageMap: Record<string, string> = {};
+        for (const img of images || []) {
+          if (img.variation_id && !variationImageMap[img.variation_id]) {
+            variationImageMap[img.variation_id] = img.image_url;
+          }
+          if (img.product_id && !productImageMap[img.product_id]) {
+            productImageMap[img.product_id] = img.image_url;
+          }
+        }
+
+        // Map each item to its image
+        for (const item of items || []) {
+          const image = variationImageMap[item.variation_id] || productImageMap[item.product_id];
+          if (image) imageMap[item.id] = image;
+        }
+      }
+
       // Fetch shipments for each item
       const itemsWithShipments = await Promise.all(
         (items || []).map(async (item) => {
@@ -338,6 +393,7 @@ export async function GET(request: NextRequest) {
 
           return {
             ...item,
+            image: imageMap[item.id] || null,
             shipments: shipments || []
           };
         })
@@ -360,10 +416,33 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const offset = (page - 1) * limit;
 
-    // Use the order_summary view for efficient querying
+    // Sort params
+    const sortBy = searchParams.get('sort_by') || 'created_at';
+    const sortDir = searchParams.get('sort_dir') || 'desc';
+    const ascending = sortDir === 'asc';
+
+    // Query from orders table directly with customer join (avoids view issues with total_amount)
+    // When searching by customer name, we need to find matching customer IDs first
+    let searchCustomerIds: string[] | null = null;
+    if (search) {
+      const { data: matchingCustomers } = await supabaseAdmin
+        .from('customers')
+        .select('id')
+        .ilike('name', `%${search}%`);
+      searchCustomerIds = (matchingCustomers || []).map(c => c.id);
+    }
+
     let query = supabaseAdmin
-      .from('order_summary')
-      .select('*', { count: 'exact' });
+      .from('orders')
+      .select(`
+        id, order_number, order_date, created_at, delivery_date,
+        subtotal, discount_amount, vat_amount, shipping_fee, total_amount,
+        order_status, payment_status, payment_method,
+        customer_id,
+        customer:customers (
+          customer_code, name, contact_person, phone
+        )
+      `, { count: 'exact' });
 
     // Apply filters
     if (customerId) {
@@ -379,12 +458,19 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      query = query.or(`order_number.ilike.%${search}%,customer_name.ilike.%${search}%`);
+      if (searchCustomerIds && searchCustomerIds.length > 0) {
+        query = query.or(`order_number.ilike.%${search}%,customer_id.in.(${searchCustomerIds.join(',')})`);
+      } else {
+        query = query.ilike('order_number', `%${search}%`);
+      }
     }
 
     // Add pagination and ordering
-    const { data: orders, error, count } = await query
-      .order('order_date', { ascending: false })
+    const allowedSortColumns = ['order_date', 'created_at', 'delivery_date', 'total_amount', 'order_number'];
+    const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
+
+    const { data: rawOrders, error, count } = await query
+      .order(sortColumn, { ascending, nullsFirst: false })
       .range(offset, offset + limit - 1);
 
     if (error) {
@@ -394,11 +480,51 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Flatten customer data for backward compatibility
+    const orders = (rawOrders || []).map((o: any) => ({
+      ...o,
+      customer_code: o.customer?.customer_code,
+      customer_name: o.customer?.name,
+      contact_person: o.customer?.contact_person,
+      customer_phone: o.customer?.phone,
+      customer: undefined
+    }));
+
+    // Fetch status counts (independent of status/payment filters)
+    let countQuery = supabaseAdmin
+      .from('orders')
+      .select('order_status, payment_status', { count: 'exact' });
+
+    if (customerId) {
+      countQuery = countQuery.eq('customer_id', customerId);
+    }
+    if (search) {
+      if (searchCustomerIds && searchCustomerIds.length > 0) {
+        countQuery = countQuery.or(`order_number.ilike.%${search}%,customer_id.in.(${searchCustomerIds.join(',')})`);
+      } else {
+        countQuery = countQuery.ilike('order_number', `%${search}%`);
+      }
+    }
+
+    const { data: allStatusRows } = await countQuery;
+
+    const statusCounts: Record<string, number> = { all: 0, new: 0, shipping: 0, completed: 0, cancelled: 0 };
+    const paymentCounts: Record<string, number> = { all: 0, pending: 0, verifying: 0, paid: 0, cancelled: 0 };
+
+    (allStatusRows || []).forEach((row: any) => {
+      statusCounts.all++;
+      if (row.order_status in statusCounts) statusCounts[row.order_status]++;
+      paymentCounts.all++;
+      if (row.payment_status in paymentCounts) paymentCounts[row.payment_status]++;
+    });
+
     // Early return if no orders
     if (!orders || orders.length === 0) {
       return NextResponse.json({
         orders: [],
-        pagination: { page, limit, total: 0, totalPages: 0 }
+        pagination: { page, limit, total: 0, totalPages: 0 },
+        statusCounts,
+        paymentCounts
       });
     }
 
@@ -446,7 +572,9 @@ export async function GET(request: NextRequest) {
         limit,
         total: count || 0,
         totalPages: Math.ceil((count || 0) / limit)
-      }
+      },
+      statusCounts,
+      paymentCounts
     });
   } catch (error) {
     return NextResponse.json(
@@ -532,18 +660,32 @@ export async function PUT(request: NextRequest) {
       // Calculate totals
       let subtotal = 0;
       const itemsWithTotals = items.map((item: any) => {
-        const discountPercent = item.discount_percent || 0;
+        // Support both discount_percent (legacy) and discount_value/discount_type (new)
+        let discountPercent = 0;
+        let discountAmountItem = 0;
         const itemSubtotal = item.quantity * item.unit_price;
-        const discountAmountItem = itemSubtotal * (discountPercent / 100);
+
+        if (item.discount_type === 'amount' && item.discount_value) {
+          discountAmountItem = item.discount_value;
+          discountPercent = itemSubtotal > 0 ? (discountAmountItem / itemSubtotal) * 100 : 0;
+        } else {
+          discountPercent = item.discount_value || item.discount_percent || 0;
+          discountAmountItem = itemSubtotal * (discountPercent / 100);
+        }
+
         const itemTotal = itemSubtotal - discountAmountItem;
         subtotal += itemTotal;
         return {
           ...item,
+          discount_percent: discountPercent,
           discount_amount: discountAmountItem,
+          discount_type: item.discount_type || 'percent',
           subtotal: itemSubtotal,
           total: itemTotal
         };
       });
+
+      console.log('[UPDATE ORDER] items count:', items.length, 'subtotal:', subtotal, 'items:', items.map((i: any) => ({ name: i.product_name, qty: i.quantity, price: i.unit_price, address: i.shipments?.[0]?.shipping_address_id })));
 
       // Calculate total shipping fee (deduplicated by address)
       const shippingFeeByAddress = new Map<string, number>();
@@ -557,8 +699,12 @@ export async function PUT(request: NextRequest) {
       const totalShippingFee = Array.from(shippingFeeByAddress.values()).reduce((sum, f) => sum + f, 0);
 
       const orderDiscountAmount = discount_amount || 0;
-      const vatAmount = (subtotal - orderDiscountAmount) * 0.07; // 7% VAT
-      const totalAmount = subtotal - orderDiscountAmount + vatAmount + totalShippingFee;
+      // Prices are VAT-inclusive, so we reverse-calculate VAT from the total
+      const totalWithVAT = subtotal - orderDiscountAmount + totalShippingFee;
+      const subtotalBeforeVAT = Math.round((totalWithVAT / 1.07) * 100) / 100;
+      const vatAmount = totalWithVAT - subtotalBeforeVAT;
+      const totalAmount = totalWithVAT;
+      console.log('[UPDATE ORDER] itemsSubtotal:', subtotal, 'discount:', orderDiscountAmount, 'shipping:', totalShippingFee, 'subtotalBeforeVAT:', subtotalBeforeVAT, 'vat:', vatAmount, 'TOTAL:', totalAmount);
 
       // Delete existing order items (cascades to shipments via foreign key)
       const { error: deleteItemsError } = await supabaseAdmin
@@ -579,7 +725,7 @@ export async function PUT(request: NextRequest) {
         .from('orders')
         .update({
           delivery_date: delivery_date || null,
-          subtotal,
+          subtotal: subtotalBeforeVAT,
           vat_amount: vatAmount,
           discount_amount: orderDiscountAmount,
           shipping_fee: totalShippingFee,
@@ -614,6 +760,7 @@ export async function PUT(request: NextRequest) {
             unit_price: item.unit_price,
             discount_percent: item.discount_percent || 0,
             discount_amount: item.discount_amount,
+            discount_type: item.discount_type || 'percent',
             subtotal: item.subtotal,
             total: item.total,
             notes: item.notes || null,

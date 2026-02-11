@@ -30,7 +30,8 @@ import {
   UserX,
   Clock,
   Bell,
-  UserPlus
+  UserPlus,
+  FileText
 } from 'lucide-react';
 import Image from 'next/image';
 import OrderForm from '@/components/orders/OrderForm';
@@ -160,11 +161,17 @@ function LineChatPageContent() {
   // Scroll to bottom button
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // Right panel (split view) - desktop only: 'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer' | null
-  const [rightPanel, setRightPanel] = useState<'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer' | null>(null);
+  // Right panel (split view) - desktop only
+  const [rightPanel, setRightPanel] = useState<'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer' | 'order-detail' | null>(null);
 
-  // Mobile view mode: 'contacts' | 'chat' | 'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer'
-  const [mobileView, setMobileView] = useState<'contacts' | 'chat' | 'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer'>('contacts');
+  // Mobile view mode
+  const [mobileView, setMobileView] = useState<'contacts' | 'chat' | 'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer' | 'order-detail'>('contacts');
+
+  // Order detail view
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+
+  // Toast notification
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Create customer state
   const [savingCustomer, setSavingCustomer] = useState(false);
@@ -190,6 +197,13 @@ function LineChatPageContent() {
 
   // Check if any filter is active
   const hasActiveFilter = filterLinked !== 'all' || filterUnread || filterOrderDaysRange !== null;
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   // Fetch CRM settings (day ranges)
   useEffect(() => {
@@ -530,13 +544,13 @@ function LineChatPageContent() {
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      alert('กรุณาเลือกไฟล์รูปภาพ');
+      setToast({ message: 'กรุณาเลือกไฟล์รูปภาพ', type: 'error' });
       return;
     }
 
     // Validate file size (max 10MB for LINE)
     if (file.size > 10 * 1024 * 1024) {
-      alert('ไฟล์ใหญ่เกินไป (สูงสุด 10MB)');
+      setToast({ message: 'ไฟล์ใหญ่เกินไป (สูงสุด 10MB)', type: 'error' });
       return;
     }
 
@@ -1123,7 +1137,7 @@ function LineChatPageContent() {
     <Layout>
       <div className="flex h-[calc(100vh-120px)] bg-white rounded-lg border border-gray-200 overflow-hidden">
         {/* Contacts Sidebar - hidden on mobile when chat or order is open */}
-        <div className={`w-full md:w-80 border-r border-gray-200 flex flex-col ${mobileView !== 'contacts' ? 'hidden md:flex' : 'flex'}`}>
+        <div className={`w-full md:w-80 border-r border-gray-200 flex flex-col ${mobileView !== 'contacts' ? 'hidden md:flex' : 'flex'} ${rightPanel ? 'md:hidden xl:flex' : ''}`}>
           {/* Header */}
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center justify-between mb-3">
@@ -1425,11 +1439,11 @@ function LineChatPageContent() {
         </div>
 
         {/* Chat Area - shrinks when right panel is open */}
-        <div className={`flex-col relative ${mobileView === 'chat' ? 'flex' : 'hidden md:flex'} ${rightPanel ? 'w-full md:w-96 lg:w-[450px]' : 'flex-1'}`}>
+        <div className={`flex-col relative ${mobileView === 'chat' ? 'flex' : 'hidden md:flex'} ${rightPanel ? 'w-full md:w-[340px] xl:w-[420px]' : 'flex-1'}`}>
           {selectedContact ? (
             <>
               {/* Chat Header */}
-              <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <div className="p-4 border-b border-gray-200 flex items-center justify-between min-h-[81px]">
                 <div className="flex items-center gap-3">
                   {/* Back button - mobile only */}
                   <button
@@ -1891,7 +1905,7 @@ function LineChatPageContent() {
                 embedded={true}
                 onSuccess={(orderId) => {
                   setMobileView('chat');
-                  alert(`สร้างคำสั่งซื้อสำเร็จ!`);
+                  setToast({ message: 'สร้างคำสั่งซื้อสำเร็จ!', type: 'success' });
                 }}
                 onCancel={() => setMobileView('chat')}
               />
@@ -1934,34 +1948,66 @@ function LineChatPageContent() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {orderHistory.map((order) => (
-                    <div
-                      key={order.id}
-                      className="bg-white rounded-lg border border-gray-200 p-3 hover:border-blue-300 transition-colors cursor-pointer"
-                      onClick={() => router.push(`/orders?id=${order.id}`)}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium text-gray-900">{order.order_number}</span>
-                        <span className={`px-2 py-0.5 text-xs rounded-full ${
-                          order.status === 'completed' ? 'bg-green-100 text-green-700' :
-                          order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                          order.status === 'cancelled' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                          {order.status === 'completed' ? 'เสร็จสิ้น' :
-                           order.status === 'pending' ? 'รอดำเนินการ' :
-                           order.status === 'cancelled' ? 'ยกเลิก' :
-                           order.status}
-                        </span>
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        <div className="flex items-center justify-between">
-                          <span>{new Date(order.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
-                          <span className="font-medium text-gray-900">฿{order.total_amount?.toLocaleString('th-TH', { minimumFractionDigits: 2 }) || '0.00'}</span>
+                  {orderHistory.map((order) => {
+                    const orderStatus = order.order_status || order.status;
+                    return (
+                      <div
+                        key={order.id}
+                        className="bg-white rounded-lg border border-gray-200 p-3 hover:border-blue-300 transition-colors cursor-pointer"
+                        onClick={() => {
+                          setSelectedOrderId(order.id);
+                          if (window.innerWidth < 768) {
+                            setMobileView('order-detail');
+                          } else {
+                            setRightPanel('order-detail');
+                          }
+                        }}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <span className="font-medium text-gray-900">{order.order_number}</span>
+                            {order.order_date && (
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                เปิดบิล {new Date(order.order_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`px-2 py-0.5 text-xs rounded-full ${
+                            orderStatus === 'completed' ? 'bg-green-100 text-green-700' :
+                            orderStatus === 'new' ? 'bg-blue-100 text-blue-700' :
+                            orderStatus === 'shipping' ? 'bg-yellow-100 text-yellow-700' :
+                            orderStatus === 'cancelled' ? 'bg-red-100 text-red-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {orderStatus === 'completed' ? 'เสร็จสิ้น' :
+                             orderStatus === 'new' ? 'ใหม่' :
+                             orderStatus === 'shipping' ? 'กำลังส่ง' :
+                             orderStatus === 'cancelled' ? 'ยกเลิก' :
+                             orderStatus}
+                          </span>
+                        </div>
+                        {order.branch_names && order.branch_names.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-1.5">
+                            {order.branch_names.map((name: string, idx: number) => (
+                              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-600">
+                                {name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="text-sm text-gray-500">
+                          <div className="flex items-center justify-between">
+                            <span>
+                              {order.delivery_date
+                                ? `จัดส่ง ${new Date(order.delivery_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}`
+                                : 'ยังไม่กำหนดจัดส่ง'}
+                            </span>
+                            <span className="font-medium text-gray-900">฿{order.total_amount?.toLocaleString('th-TH', { minimumFractionDigits: 2 }) || '0.00'}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -2221,11 +2267,42 @@ function LineChatPageContent() {
           </div>
         )}
 
+        {/* Mobile Order Detail View - Full screen on mobile */}
+        {mobileView === 'order-detail' && selectedOrderId && (
+          <div className="flex md:hidden w-full flex-col bg-gray-50">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setMobileView('history')}
+                  className="p-1 -ml-1 text-gray-500 hover:text-gray-700"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <FileText className="w-5 h-5 text-blue-500" />
+                <h2 className="text-lg font-semibold text-gray-900">รายละเอียดออเดอร์</h2>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <OrderForm
+                key={`mobile-${selectedOrderId}`}
+                editOrderId={selectedOrderId}
+                embedded={true}
+                onSuccess={(orderId) => {
+                  setMobileView('history');
+                  setToast({ message: 'บันทึกการแก้ไขสำเร็จ!', type: 'success' });
+                  if (selectedContact?.customer) fetchOrderHistory(selectedContact.customer.id);
+                }}
+                onCancel={() => setMobileView('history')}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Order Panel - Right Side (Desktop only) */}
         {rightPanel === 'order' && selectedContact?.customer && (
           <div className="hidden md:flex flex-1 flex-col border-l border-gray-200 bg-gray-50">
             {/* Panel Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white min-h-[81px]">
               <div className="flex items-center gap-3">
                 <ShoppingCart className="w-5 h-5 text-[#E9B308]" />
                 <div>
@@ -2251,7 +2328,7 @@ function LineChatPageContent() {
                 embedded={true}
                 onSuccess={(orderId) => {
                   setRightPanel(null);
-                  alert(`สร้างคำสั่งซื้อสำเร็จ!`);
+                  setToast({ message: 'สร้างคำสั่งซื้อสำเร็จ!', type: 'success' });
                 }}
                 onCancel={() => setRightPanel(null)}
               />
@@ -2263,7 +2340,7 @@ function LineChatPageContent() {
         {rightPanel === 'history' && selectedContact?.customer && (
           <div className="hidden md:flex flex-1 flex-col border-l border-gray-200 bg-gray-50">
             {/* Panel Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white min-h-[81px]">
               <div className="flex items-center gap-3">
                 <History className="w-5 h-5 text-blue-500" />
                 <div>
@@ -2295,34 +2372,66 @@ function LineChatPageContent() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {orderHistory.map((order) => (
-                    <div
-                      key={order.id}
-                      className="bg-white rounded-lg border border-gray-200 p-3 hover:border-blue-300 transition-colors cursor-pointer"
-                      onClick={() => router.push(`/orders?id=${order.id}`)}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium text-gray-900">{order.order_number}</span>
-                        <span className={`px-2 py-0.5 text-xs rounded-full ${
-                          order.status === 'completed' ? 'bg-green-100 text-green-700' :
-                          order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                          order.status === 'cancelled' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                          {order.status === 'completed' ? 'เสร็จสิ้น' :
-                           order.status === 'pending' ? 'รอดำเนินการ' :
-                           order.status === 'cancelled' ? 'ยกเลิก' :
-                           order.status}
-                        </span>
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        <div className="flex items-center justify-between">
-                          <span>{new Date(order.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
-                          <span className="font-medium text-gray-900">฿{order.total_amount?.toLocaleString('th-TH', { minimumFractionDigits: 2 }) || '0.00'}</span>
+                  {orderHistory.map((order) => {
+                    const orderStatus = order.order_status || order.status;
+                    return (
+                      <div
+                        key={order.id}
+                        className="bg-white rounded-lg border border-gray-200 p-3 hover:border-blue-300 transition-colors cursor-pointer"
+                        onClick={() => {
+                          setSelectedOrderId(order.id);
+                          if (window.innerWidth < 768) {
+                            setMobileView('order-detail');
+                          } else {
+                            setRightPanel('order-detail');
+                          }
+                        }}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <span className="font-medium text-gray-900">{order.order_number}</span>
+                            {order.order_date && (
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                เปิดบิล {new Date(order.order_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`px-2 py-0.5 text-xs rounded-full ${
+                            orderStatus === 'completed' ? 'bg-green-100 text-green-700' :
+                            orderStatus === 'new' ? 'bg-blue-100 text-blue-700' :
+                            orderStatus === 'shipping' ? 'bg-yellow-100 text-yellow-700' :
+                            orderStatus === 'cancelled' ? 'bg-red-100 text-red-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {orderStatus === 'completed' ? 'เสร็จสิ้น' :
+                             orderStatus === 'new' ? 'ใหม่' :
+                             orderStatus === 'shipping' ? 'กำลังส่ง' :
+                             orderStatus === 'cancelled' ? 'ยกเลิก' :
+                             orderStatus}
+                          </span>
+                        </div>
+                        {order.branch_names && order.branch_names.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-1.5">
+                            {order.branch_names.map((name: string, idx: number) => (
+                              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-600">
+                                {name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="text-sm text-gray-500">
+                          <div className="flex items-center justify-between">
+                            <span>
+                              {order.delivery_date
+                                ? `จัดส่ง ${new Date(order.delivery_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}`
+                                : 'ยังไม่กำหนดจัดส่ง'}
+                            </span>
+                            <span className="font-medium text-gray-900">฿{order.total_amount?.toLocaleString('th-TH', { minimumFractionDigits: 2 }) || '0.00'}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -2333,7 +2442,7 @@ function LineChatPageContent() {
         {rightPanel === 'profile' && selectedContact?.customer && (
           <div className="hidden md:flex flex-1 flex-col border-l border-gray-200 bg-gray-50">
             {/* Panel Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white min-h-[81px]">
               <div className="flex items-center gap-3">
                 <User className="w-5 h-5 text-blue-500" />
                 <div>
@@ -2502,7 +2611,7 @@ function LineChatPageContent() {
         {rightPanel === 'edit-customer' && selectedContact?.customer && (
           <div className="hidden md:flex flex-1 flex-col border-l border-gray-200 bg-gray-50">
             {/* Panel Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white min-h-[81px]">
               <div className="flex items-center gap-3">
                 <User className="w-5 h-5 text-blue-500" />
                 <div>
@@ -2558,7 +2667,7 @@ function LineChatPageContent() {
         {rightPanel === 'create-customer' && selectedContact && !selectedContact.customer && (
           <div className="hidden md:flex flex-1 flex-col border-l border-gray-200 bg-gray-50">
             {/* Panel Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white min-h-[81px]">
               <div className="flex items-center gap-3">
                 <UserPlus className="w-5 h-5 text-blue-500" />
                 <div>
@@ -2588,7 +2697,66 @@ function LineChatPageContent() {
             </div>
           </div>
         )}
+        {/* Order Detail Panel - Right Side (Desktop only) */}
+        {rightPanel === 'order-detail' && selectedOrderId && (
+          <div className="hidden md:flex flex-1 flex-col border-l border-gray-200 bg-gray-50">
+            {/* Panel Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white min-h-[81px]">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setRightPanel('history')}
+                  className="p-1 -ml-1 text-gray-500 hover:text-gray-700"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <FileText className="w-5 h-5 text-blue-500" />
+                <h2 className="text-lg font-semibold text-gray-900">รายละเอียดออเดอร์</h2>
+              </div>
+              <button
+                onClick={() => setRightPanel(null)}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="ปิด"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Order Form (edit if new, read-only otherwise) */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <OrderForm
+                key={selectedOrderId}
+                editOrderId={selectedOrderId}
+                embedded={true}
+                onSuccess={(orderId) => {
+                  setRightPanel('history');
+                  setToast({ message: 'บันทึกการแก้ไขสำเร็จ!', type: 'success' });
+                  if (selectedContact?.customer) fetchOrderHistory(selectedContact.customer.id);
+                }}
+                onCancel={() => setRightPanel('history')}
+              />
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-lg shadow-lg flex items-center gap-2 text-sm font-medium transition-all animate-in fade-in slide-in-from-bottom-4 ${
+          toast.type === 'success'
+            ? 'bg-green-600 text-white'
+            : 'bg-red-600 text-white'
+        }`}>
+          {toast.type === 'success' ? (
+            <Check className="w-4 h-4" />
+          ) : (
+            <AlertCircle className="w-4 h-4" />
+          )}
+          {toast.message}
+          <button onClick={() => setToast(null)} className="ml-2 p-0.5 hover:bg-white/20 rounded">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Link Customer Modal */}
       {showLinkModal && (

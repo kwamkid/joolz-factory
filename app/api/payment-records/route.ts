@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert payment record
+    // Insert payment record (admin-created = verified immediately)
     const { data: paymentRecord, error: insertError } = await supabaseAdmin
       .from('payment_records')
       .insert({
@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
         transfer_date: payment_method === 'transfer' ? transfer_date : null,
         transfer_time: payment_method === 'transfer' ? transfer_time : null,
         notes,
+        status: 'verified',
         created_by: user.id
       })
       .select()

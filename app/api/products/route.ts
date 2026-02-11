@@ -447,27 +447,62 @@ export async function GET(request: NextRequest) {
       return acc;
     }, []);
 
-    // Fetch main images from product_images table
+    // Fetch images from product_images table
     const productIds = groupedProducts.map((p: any) => p.product_id);
     if (productIds.length > 0) {
-      const { data: allImages } = await supabaseAdmin
+      // 1. Product-level images (no variation_id)
+      const { data: productImages } = await supabaseAdmin
         .from('product_images')
         .select('product_id, image_url, sort_order')
         .in('product_id', productIds)
+        .is('variation_id', null)
         .order('sort_order', { ascending: true });
 
-      if (allImages && allImages.length > 0) {
-        // Get first image per product (lowest sort_order)
-        const imageMap = new Map<string, string>();
-        for (const img of allImages) {
+      const imageMap = new Map<string, string>();
+      if (productImages) {
+        for (const img of productImages) {
           if (img.product_id && !imageMap.has(img.product_id)) {
             imageMap.set(img.product_id, img.image_url);
           }
         }
-        groupedProducts.forEach((p: any) => {
-          p.main_image_url = imageMap.get(p.product_id) || null;
-        });
       }
+
+      // 2. Variation-level images (query by variation_id)
+      const allVariationIds: string[] = [];
+      groupedProducts.forEach((p: any) => {
+        if (p.variations) {
+          p.variations.forEach((v: any) => {
+            if (v.variation_id) allVariationIds.push(v.variation_id);
+          });
+        }
+      });
+
+      const variationImageMap = new Map<string, string>();
+      if (allVariationIds.length > 0) {
+        const { data: varImages } = await supabaseAdmin
+          .from('product_images')
+          .select('variation_id, image_url, sort_order')
+          .in('variation_id', allVariationIds)
+          .order('sort_order', { ascending: true });
+
+        if (varImages) {
+          for (const img of varImages) {
+            if (img.variation_id && !variationImageMap.has(img.variation_id)) {
+              variationImageMap.set(img.variation_id, img.image_url);
+            }
+          }
+        }
+      }
+
+      // Assign images to products and variations
+      groupedProducts.forEach((p: any) => {
+        p.main_image_url = imageMap.get(p.product_id) || null;
+        if (p.variations) {
+          p.variations.forEach((v: any) => {
+            v.image_url = variationImageMap.get(v.variation_id) || null;
+          });
+        }
+      });
     }
 
     return NextResponse.json({ products: groupedProducts });

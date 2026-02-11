@@ -15,7 +15,10 @@ import {
   MapPin,
   X,
   Save,
-  Copy
+  Copy,
+  ChevronDown,
+  CheckCircle,
+  ExternalLink
 } from 'lucide-react';
 
 // Interfaces
@@ -60,6 +63,7 @@ interface BranchProduct {
   product_code: string;
   product_name: string;
   bottle_size?: string;
+  image?: string;
   quantity: number;
   unit_price: number;
   discount_value: number;
@@ -88,7 +92,9 @@ interface OrderFormProps {
   preselectedCustomerId?: string;
   // Initial order data for copying from previous order
   initialOrderData?: InitialOrderData;
-  // Callback when order is created successfully
+  // Edit existing order by ID
+  editOrderId?: string;
+  // Callback when order is created/updated successfully
   onSuccess?: (orderId: string) => void;
   // Callback when cancelled
   onCancel?: () => void;
@@ -99,6 +105,7 @@ interface OrderFormProps {
 export default function OrderForm({
   preselectedCustomerId,
   initialOrderData,
+  editOrderId,
   onSuccess,
   onCancel,
   embedded = false
@@ -107,10 +114,21 @@ export default function OrderForm({
   const { userProfile, loading: authLoading } = useAuth();
 
   // State
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!!editOrderId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [savedOrderId, setSavedOrderId] = useState('');
+  const [savedOrderNumber, setSavedOrderNumber] = useState('');
+
+  // Edit mode
+  const [editOrderNumber, setEditOrderNumber] = useState('');
+  const [editOrderStatus, setEditOrderStatus] = useState('');
+  const [editPaymentStatus, setEditPaymentStatus] = useState('');
+  const isEditMode = !!editOrderId;
+  const isReadOnly = isEditMode && (editOrderStatus !== 'new' || editPaymentStatus !== 'pending');
 
   // Customer selection
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -130,6 +148,8 @@ export default function OrderForm({
   // Branch Orders
   const [branchOrders, setBranchOrders] = useState<BranchOrder[]>([]);
   const [activeBranchIndex, setActiveBranchIndex] = useState(0);
+  const [branchDropdownOpen, setBranchDropdownOpen] = useState<number | null>(null);
+  const branchDropdownRef = useRef<HTMLDivElement>(null);
 
   // Order details
   const [deliveryDateValue, setDeliveryDateValue] = useState<DateValueType>({
@@ -147,12 +167,39 @@ export default function OrderForm({
   // Product search per branch
   const [productSearches, setProductSearches] = useState<string[]>([]);
   const [showProductDropdowns, setShowProductDropdowns] = useState<boolean[]>([]);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+  // Close lightbox on Esc key
+  useEffect(() => {
+    if (!lightboxImage) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxImage(null);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [lightboxImage]);
+
+  // Close branch dropdown on click outside
+  useEffect(() => {
+    if (branchDropdownOpen === null) return;
+    const handleClick = (e: MouseEvent) => {
+      if (branchDropdownRef.current && !branchDropdownRef.current.contains(e.target as Node)) {
+        setBranchDropdownOpen(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [branchDropdownOpen]);
 
   // Copy from latest order
   const [loadingLatestOrder, setLoadingLatestOrder] = useState(false);
 
   // Refs
   const quantityInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const productSearchRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const customerSectionRef = useRef<HTMLDivElement>(null);
+  const deliveryDateRef = useRef<HTMLDivElement>(null);
+  const branchSectionRef = useRef<HTMLDivElement>(null);
 
   // Fetch customers and products
   useEffect(() => {
@@ -219,6 +266,124 @@ export default function OrderForm({
     }
   }, [initialOrderData, customers, products]);
 
+  // Load existing order for editing
+  useEffect(() => {
+    if (!editOrderId || authLoading || !userProfile) return;
+
+    const loadOrder = async () => {
+      try {
+        setLoading(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        // Fetch order details
+        const response = await fetch(`/api/orders?id=${editOrderId}`, {
+          headers: { 'Authorization': `Bearer ${session.access_token}` }
+        });
+        if (!response.ok) throw new Error('Failed to fetch order');
+
+        const result = await response.json();
+        const order = result.order;
+        if (!order) throw new Error('Order not found');
+
+        setEditOrderNumber(order.order_number);
+        setEditOrderStatus(order.order_status);
+        setEditPaymentStatus(order.payment_status || 'pending');
+
+        // Set customer
+        if (order.customer) {
+          setSelectedCustomer(order.customer);
+          setCustomerSearch(order.customer.name);
+        }
+
+        // Set delivery date
+        if (order.delivery_date) {
+          setDeliveryDateValue({
+            startDate: new Date(order.delivery_date),
+            endDate: new Date(order.delivery_date)
+          });
+        }
+
+        // Set notes and discount
+        if (order.notes) setNotes(order.notes);
+        if (order.internal_notes) setInternalNotes(order.internal_notes);
+        if (order.discount_amount) setOrderDiscount(order.discount_amount);
+        if (order.order_discount_type) setOrderDiscountType(order.order_discount_type);
+
+        // Fetch shipping addresses
+        if (order.customer?.id) {
+          const addrResponse = await fetch(`/api/shipping-addresses?customer_id=${order.customer.id}`, {
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
+          });
+          if (addrResponse.ok) {
+            const addrResult = await addrResponse.json();
+            setShippingAddresses(addrResult.addresses || []);
+          }
+
+          // Fetch customer prices
+          const priceResponse = await fetch(`/api/customer-prices?customer_id=${order.customer.id}`, {
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
+          });
+          if (priceResponse.ok) {
+            const priceResult = await priceResponse.json();
+            setCustomerPrices(priceResult.prices || {});
+          }
+        }
+
+        // Fetch products (needed for product search)
+        await fetchProducts();
+
+        // Convert order items to branch structure
+        const branchMap = new Map<string, BranchOrder>();
+        for (const item of order.items || []) {
+          for (const shipment of item.shipments || []) {
+            const addressId = shipment.shipping_address_id;
+            const addressName = shipment.shipping_address?.address_name || 'ไม่ระบุ';
+
+            if (!branchMap.has(addressId)) {
+              branchMap.set(addressId, {
+                shipping_address_id: addressId,
+                address_name: addressName,
+                delivery_notes: shipment.delivery_notes || '',
+                shipping_fee: shipment.shipping_fee || 0,
+                products: []
+              });
+            }
+
+            const branch = branchMap.get(addressId)!;
+            const existingProduct = branch.products.find(p => p.variation_id === item.variation_id);
+            if (!existingProduct) {
+              branch.products.push({
+                variation_id: item.variation_id,
+                product_id: item.product_id,
+                product_code: item.product_code,
+                product_name: item.product_name,
+                bottle_size: item.bottle_size,
+                image: item.image,
+                quantity: shipment.quantity,
+                unit_price: item.unit_price,
+                discount_value: item.discount_type === 'amount' ? (item.discount_amount || 0) : (item.discount_percent || 0),
+                discount_type: item.discount_type || 'percent'
+              });
+            }
+          }
+        }
+
+        const branches = Array.from(branchMap.values());
+        setBranchOrders(branches);
+        setProductSearches(branches.map(() => ''));
+        setShowProductDropdowns(branches.map(() => false));
+      } catch (error) {
+        console.error('Error loading order:', error);
+        setError('ไม่สามารถโหลดข้อมูลคำสั่งซื้อได้');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadOrder();
+  }, [editOrderId, authLoading, userProfile]);
+
   const fetchCustomers = async () => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -277,7 +442,7 @@ export default function OrderForm({
               product_id: sp.product_id,
               code: `${sp.code}-${v.bottle_size}`,
               name: sp.name,
-              image: sp.main_image_url || sp.image,
+              image: v.image_url || sp.main_image_url || sp.image,
               bottle_size: v.bottle_size,
               product_type: 'variation',
               default_price: v.default_price || 0,
@@ -501,6 +666,8 @@ export default function OrderForm({
   };
 
   const handleUpdateBranchAddress = (index: number, addressId: string) => {
+    const alreadyUsed = branchOrders.some((b, i) => i !== index && b.shipping_address_id === addressId);
+    if (alreadyUsed) return;
     const newBranchOrders = [...branchOrders];
     const address = shippingAddresses.find(a => a.id === addressId);
     if (address) {
@@ -512,43 +679,47 @@ export default function OrderForm({
 
   // Product management
   const handleAddProductToBranch = (branchIndex: number, product: Product) => {
-    const existingProduct = branchOrders[branchIndex].products.find(
+    const existingProductIndex = branchOrders[branchIndex].products.findIndex(
       p => p.variation_id === product.id
     );
-    if (existingProduct) {
-      setError('สินค้านี้มีอยู่ในสาขานี้แล้ว');
-      setTimeout(() => setError(''), 3000);
-      return;
-    }
-
-    let unit_price = 0;
-    let discount_value = 0;
-    const customerLastPrice = customerPrices[product.id];
-    if (customerLastPrice) {
-      unit_price = customerLastPrice.unit_price;
-      discount_value = customerLastPrice.discount_percent;
-    } else if (product.discount_price && product.discount_price > 0) {
-      unit_price = product.discount_price;
-    } else {
-      unit_price = product.default_price;
-    }
-
-    const newProduct: BranchProduct = {
-      variation_id: product.id,
-      product_id: product.product_id,
-      product_code: product.code,
-      product_name: product.name,
-      bottle_size: product.bottle_size,
-      quantity: 1,
-      unit_price,
-      discount_value,
-      discount_type: 'percent'
-    };
 
     const newBranchOrders = [...branchOrders];
-    newBranchOrders[branchIndex].products.push(newProduct);
-    setBranchOrders(newBranchOrders);
 
+    if (existingProductIndex !== -1) {
+      // Duplicate → increment quantity (barcode scan behavior)
+      newBranchOrders[branchIndex].products[existingProductIndex].quantity += 1;
+      setBranchOrders(newBranchOrders);
+    } else {
+      let unit_price = 0;
+      let discount_value = 0;
+      const customerLastPrice = customerPrices[product.id];
+      if (customerLastPrice) {
+        unit_price = customerLastPrice.unit_price;
+        discount_value = customerLastPrice.discount_percent;
+      } else if (product.discount_price && product.discount_price > 0) {
+        unit_price = product.discount_price;
+      } else {
+        unit_price = product.default_price;
+      }
+
+      const newProduct: BranchProduct = {
+        variation_id: product.id,
+        product_id: product.product_id,
+        product_code: product.code,
+        product_name: product.name,
+        bottle_size: product.bottle_size,
+        image: product.image,
+        quantity: 1,
+        unit_price,
+        discount_value,
+        discount_type: 'percent'
+      };
+
+      newBranchOrders[branchIndex].products.push(newProduct);
+      setBranchOrders(newBranchOrders);
+    }
+
+    // Clear search and close dropdown
     const newSearches = [...productSearches];
     newSearches[branchIndex] = '';
     setProductSearches(newSearches);
@@ -556,13 +727,11 @@ export default function OrderForm({
     newDropdowns[branchIndex] = false;
     setShowProductDropdowns(newDropdowns);
 
+    // Focus back to product search input for next scan/search
     setTimeout(() => {
-      const productIndex = newBranchOrders[branchIndex].products.length - 1;
-      const inputKey = `${branchIndex}-${productIndex}`;
-      const inputElement = quantityInputRefs.current[inputKey];
-      if (inputElement) {
-        inputElement.focus();
-        inputElement.select();
+      const searchInput = productSearchRefs.current[branchIndex];
+      if (searchInput) {
+        searchInput.focus();
       }
     }, 100);
   };
@@ -640,14 +809,29 @@ export default function OrderForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedCustomer) { setError('กรุณาเลือกลูกค้า'); return; }
-    if (!deliveryDate) { setError('กรุณาเลือกวันที่ส่งของ'); return; }
-    if (branchOrders.length === 0) { setError('กรุณาเพิ่มอย่างน้อย 1 สาขา'); return; }
+    // Inline validation
+    const errors: Record<string, string> = {};
+    if (!selectedCustomer) errors.customer = 'กรุณาเลือกลูกค้า';
+    if (!deliveryDate) errors.deliveryDate = 'กรุณาเลือกวันที่ส่งของ';
+    if (branchOrders.length === 0) errors.branches = 'กรุณาเพิ่มอย่างน้อย 1 สาขา';
     for (let i = 0; i < branchOrders.length; i++) {
       if (branchOrders[i].products.length === 0) {
-        setError(`กรุณาเพิ่มสินค้าสำหรับสาขา: ${branchOrders[i].address_name}`);
-        return;
+        errors[`branch_${i}`] = `กรุณาเพิ่มสินค้าสำหรับสาขา: ${branchOrders[i].address_name}`;
+        if (!errors.branches) errors.branches = errors[`branch_${i}`];
       }
+    }
+
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      // Scroll to first error
+      if (errors.customer) {
+        customerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else if (errors.deliveryDate) {
+        deliveryDateRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else if (errors.branches || Object.keys(errors).some(k => k.startsWith('branch_'))) {
+        branchSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
     }
 
     try {
@@ -676,8 +860,8 @@ export default function OrderForm({
         }))
       );
 
-      const orderData = {
-        customer_id: selectedCustomer.id,
+      const orderData: any = {
+        customer_id: selectedCustomer!.id,
         delivery_date: deliveryDate || undefined,
         discount_amount: calculateOrderDiscount(),
         order_discount_type: orderDiscountType,
@@ -686,8 +870,12 @@ export default function OrderForm({
         items
       };
 
+      if (isEditMode) {
+        orderData.id = editOrderId;
+      }
+
       const response = await fetch('/api/orders', {
-        method: 'POST',
+        method: isEditMode ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`
@@ -698,15 +886,23 @@ export default function OrderForm({
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'เกิดข้อผิดพลาด');
 
-      setSuccess('สร้างคำสั่งซื้อสำเร็จ');
+      const newOrderId = result.order?.id || result.id || editOrderId!;
 
-      if (onSuccess) {
-        setTimeout(() => onSuccess(result.order?.id || result.id), 1000);
+      if (isEditMode) {
+        setSuccess('บันทึกการแก้ไขสำเร็จ');
+        if (onSuccess) {
+          setTimeout(() => onSuccess(newOrderId), 1000);
+        } else {
+          setTimeout(() => { router.push('/orders'); }, 1500);
+        }
       } else {
-        setTimeout(() => { router.push('/orders'); }, 1500);
+        // New order: show success modal with bill online option
+        setSavedOrderId(newOrderId);
+        setSavedOrderNumber(result.order?.order_number || '');
+        setShowSuccessModal(true);
       }
     } catch (error) {
-      console.error('Error creating order:', error);
+      console.error('Error saving order:', error);
       setError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด');
     } finally {
       setSaving(false);
@@ -721,13 +917,28 @@ export default function OrderForm({
     }
   };
 
-  if (authLoading) {
+  if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-8 h-8 text-[#E9B308] animate-spin" />
       </div>
     );
   }
+
+  // Read-only banner (shown when order can't be edited)
+  const readOnlyBanner = (() => {
+    if (!isReadOnly) return null;
+    const statusLabels: Record<string, string> = { new: 'ใหม่', shipping: 'กำลังส่ง', completed: 'สำเร็จ', cancelled: 'ยกเลิก' };
+    const paymentLabels: Record<string, string> = { pending: 'รอชำระ', verifying: 'รอตรวจสอบ', paid: 'ชำระแล้ว', cancelled: 'ยกเลิก' };
+    const reasonMessage = editOrderStatus !== 'new'
+      ? `สถานะออเดอร์ "${statusLabels[editOrderStatus] || editOrderStatus}"`
+      : `สถานะชำระเงิน "${paymentLabels[editPaymentStatus] || editPaymentStatus}"`;
+    return (
+      <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
+        คำสั่งซื้อ {editOrderNumber} ({reasonMessage}) — ไม่สามารถแก้ไขได้
+      </div>
+    );
+  })();
 
   const filteredCustomers = customers.filter(c =>
     c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
@@ -740,7 +951,7 @@ export default function OrderForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Messages */}
+      {/* Server error (API errors only) */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
           {error}
@@ -752,11 +963,13 @@ export default function OrderForm({
         </div>
       )}
 
+      {readOnlyBanner}
+
       {/* Step 1: Customer + Delivery Date */}
       <div className={`bg-white rounded-lg ${embedded ? '' : 'border border-gray-200'} p-4`}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Customer Search */}
-          <div className="relative md:col-span-2">
+          <div ref={customerSectionRef} className="relative md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               ลูกค้า <span className="text-red-500">*</span>
             </label>
@@ -769,12 +982,18 @@ export default function OrderForm({
                   setCustomerSearch(e.target.value);
                   setShowCustomerDropdown(true);
                 }}
-                onFocus={() => setShowCustomerDropdown(true)}
+                onFocus={() => {
+                  setShowCustomerDropdown(true);
+                  setFieldErrors(prev => { const { customer, ...rest } = prev; return rest; });
+                }}
                 placeholder="ค้นหาชื่อลูกค้าหรือรหัส..."
-                className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm"
-                disabled={!!preselectedCustomerId && !!selectedCustomer}
+                className={`w-full pl-9 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm ${fieldErrors.customer ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
+                disabled={(!!preselectedCustomerId || isEditMode) && !!selectedCustomer}
               />
             </div>
+            {fieldErrors.customer && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.customer}</p>
+            )}
             {showCustomerDropdown && customerSearch && !preselectedCustomerId && (
               <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-auto">
                 {filteredCustomers.length === 0 ? (
@@ -797,19 +1016,28 @@ export default function OrderForm({
           </div>
 
           {/* Delivery Date */}
-          <div>
+          <div ref={deliveryDateRef}>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               วันที่ส่งของ <span className="text-red-500">*</span>
             </label>
-            <DateRangePicker
-              value={deliveryDateValue}
-              onChange={(val) => setDeliveryDateValue(val)}
-              asSingle={true}
-              useRange={false}
-              showShortcuts={false}
-              showFooter={false}
-              placeholder="เลือกวันที่ส่ง"
-            />
+            <div className={fieldErrors.deliveryDate ? 'ring-2 ring-red-400 rounded-lg' : ''}>
+              <DateRangePicker
+                value={deliveryDateValue}
+                onChange={(val) => {
+                  setDeliveryDateValue(val);
+                  setFieldErrors(prev => { const { deliveryDate, ...rest } = prev; return rest; });
+                }}
+                asSingle={true}
+                useRange={false}
+                showShortcuts={false}
+                showFooter={false}
+                placeholder="เลือกวันที่ส่ง"
+                disabled={isReadOnly}
+              />
+            </div>
+            {fieldErrors.deliveryDate && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.deliveryDate}</p>
+            )}
           </div>
         </div>
 
@@ -831,25 +1059,27 @@ export default function OrderForm({
               )}
             </div>
             {/* Copy from latest order button */}
-            <button
-              type="button"
-              onClick={handleCopyLatestOrder}
-              disabled={loadingLatestOrder}
-              className="p-2 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
-              title="คัดลอก Order ล่าสุด"
-            >
-              {loadingLatestOrder ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Copy className="w-4 h-4" />
-              )}
-            </button>
+            {!isReadOnly && (
+              <button
+                type="button"
+                onClick={handleCopyLatestOrder}
+                disabled={loadingLatestOrder}
+                className="p-2 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
+                title="คัดลอก Order ล่าสุด"
+              >
+                {loadingLatestOrder ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+              </button>
+            )}
           </div>
         )}
       </div>
 
       {/* No Shipping Addresses Warning */}
-      {selectedCustomer && shippingAddresses.length === 0 && (
+      {selectedCustomer && shippingAddresses.length === 0 && !isReadOnly && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <MapPin className="w-5 h-5 text-yellow-600 flex-shrink-0" />
@@ -870,45 +1100,102 @@ export default function OrderForm({
 
       {/* Step 2: Branch Orders - Product List */}
       {selectedCustomer && branchOrders.length > 0 && (
-        <div className={`bg-white rounded-lg ${embedded ? '' : 'border border-gray-200'} overflow-visible`}>
+        <div ref={branchSectionRef} className={`bg-white rounded-lg ${embedded ? '' : 'border border-gray-200'} overflow-visible`}>
           {/* Branch Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-            {/* Branch Tabs */}
-            <div className="flex items-center gap-1 overflow-x-auto">
-              {branchOrders.map((branch, index) => (
-                <button
-                  key={index}
-                  type="button"
-                  onClick={() => setActiveBranchIndex(index)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-                    activeBranchIndex === index
-                      ? 'bg-[#E9B308] text-[#00231F]'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <MapPin className="w-3.5 h-3.5" />
-                  {branch.address_name}
-                  {branch.products.length > 0 && (
-                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                      activeBranchIndex === index ? 'bg-[#00231F]/20' : 'bg-gray-200'
-                    }`}>
-                      {branch.products.length}
-                    </span>
-                  )}
-                </button>
-              ))}
+            {/* Branch Tabs with inline dropdown */}
+            <div className="flex items-center gap-1 overflow-visible" ref={branchDropdownRef}>
+              {branchOrders.map((branch, index) => {
+                const isActive = activeBranchIndex === index;
+                const isDropdownOpen = branchDropdownOpen === index;
+                return (
+                  <div key={index} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!isActive) {
+                          setActiveBranchIndex(index);
+                          setBranchDropdownOpen(null);
+                        } else if (shippingAddresses.length > 0 && !isReadOnly) {
+                          setBranchDropdownOpen(isDropdownOpen ? null : index);
+                        }
+                      }}
+                      className={`px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                        isActive
+                          ? 'bg-[#E9B308] text-[#00231F]'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <MapPin className="w-3.5 h-3.5" />
+                      {branch.address_name}
+                      {branch.products.length > 0 && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                          isActive ? 'bg-[#00231F]/20' : 'bg-gray-200'
+                        }`}>
+                          {branch.products.length}
+                        </span>
+                      )}
+                      {isActive && shippingAddresses.length > 0 && !isReadOnly && (
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                      )}
+                    </button>
+                    {/* Dropdown to change address */}
+                    {isDropdownOpen && (() => {
+                      const usedIds = branchOrders.map(b => b.shipping_address_id).filter(id => id !== branch.shipping_address_id);
+                      return (
+                        <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[200px] py-1">
+                          {shippingAddresses
+                            .filter(addr => !usedIds.includes(addr.id))
+                            .map(addr => (
+                              <button
+                                key={addr.id}
+                                type="button"
+                                onClick={() => {
+                                  handleUpdateBranchAddress(index, addr.id);
+                                  setBranchDropdownOpen(null);
+                                }}
+                                className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center gap-2 ${
+                                  branch.shipping_address_id === addr.id
+                                    ? 'bg-[#E9B308]/10 text-[#00231F] font-medium'
+                                    : 'text-gray-700 hover:bg-gray-50'
+                                }`}
+                              >
+                                <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span className="truncate">{addr.address_name}</span>
+                              </button>
+                            ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                );
+              })}
             </div>
 
-            <button
-              type="button"
-              onClick={handleAddBranch}
-              disabled={!canAddBranch}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ml-2 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-blue-50"
-              title={!canAddBranch ? (shippingAddresses.length <= 1 ? 'ลูกค้ามีสาขาเดียว' : 'เพิ่มครบทุกสาขาแล้ว') : 'เพิ่มสาขา'}
-            >
-              <Plus className="w-4 h-4" />
-              เพิ่มสาขา
-            </button>
+            {!isReadOnly && (
+              <div className="flex items-center gap-1.5 ml-2">
+                {branchOrders.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveBranch(activeBranchIndex)}
+                    className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                    title="ลบสาขานี้"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAddBranch}
+                  disabled={!canAddBranch}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-blue-50"
+                  title={!canAddBranch ? (shippingAddresses.length <= 1 ? 'ลูกค้ามีสาขาเดียว' : 'เพิ่มครบทุกสาขาแล้ว') : 'เพิ่มสาขา'}
+                >
+                  <Plus className="w-4 h-4" />
+                  เพิ่มสาขา
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Active Branch Content */}
@@ -917,126 +1204,216 @@ export default function OrderForm({
               key={branchIndex}
               className={branchIndex === activeBranchIndex ? 'block' : 'hidden'}
             >
-              {/* Branch address selector */}
-              <div className="px-4 py-3 bg-gray-50/50 border-b border-gray-100">
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <div className="flex-1">
-                    <select
-                      value={branch.shipping_address_id}
-                      onChange={(e) => handleUpdateBranchAddress(branchIndex, e.target.value)}
-                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm bg-white"
-                    >
-                      {shippingAddresses.map(addr => (
-                        <option key={addr.id} value={addr.id}>
-                          {addr.address_name} - {addr.address_line1}, {addr.district}, {addr.amphoe}, {addr.province}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  {branchOrders.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveBranch(branchIndex)}
-                      className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                      title="ลบสาขานี้"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
 
-              {/* Products Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b text-xs">
-                    <tr>
-                      <th className="px-4 py-2 text-left font-medium text-gray-500 uppercase">สินค้า</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-500 uppercase w-16">จำนวน</th>
-                      <th className="px-2 py-2 text-right font-medium text-gray-500 uppercase w-24">ราคา</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-500 uppercase w-24">ส่วนลด</th>
-                      <th className="px-2 py-2 text-right font-medium text-gray-500 uppercase w-24">รวม</th>
-                      <th className="px-1 py-2 w-8"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {branch.products.map((product, productIndex) => {
-                      const capacityDisplay = getBottleSizeDisplay(product.bottle_size);
-                      return (
-                        <tr key={product.variation_id} className="hover:bg-gray-50/50">
-                          <td className="px-4 py-2.5">
-                            <div className="text-sm font-medium text-gray-900">
-                              {product.product_name}
-                              {capacityDisplay && <span className="text-gray-400 font-normal ml-1">({capacityDisplay})</span>}
+              {/* Products List */}
+              {embedded ? (
+                /* Embedded mode: card layout — product name full width, inputs below */
+                <div className="divide-y divide-gray-100">
+                  {branch.products.map((product, productIndex) => {
+                    const capacityDisplay = getBottleSizeDisplay(product.bottle_size);
+                    return (
+                      <div key={product.variation_id} className="px-3 py-2.5 hover:bg-gray-50/50">
+                        {/* Row 1: Image + Product name + delete */}
+                        <div className="flex items-start gap-2 mb-1.5">
+                          {product.image ? (
+                            <img
+                              src={product.image}
+                              alt={product.product_name}
+                              className="w-10 h-10 object-cover rounded flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={() => setLightboxImage(product.image!)}
+                            />
+                          ) : (
+                            <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center flex-shrink-0">
+                              <Package className="w-4 h-4 text-gray-400" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium text-gray-900 line-clamp-2">
+                              {product.product_name}{capacityDisplay && ` - ${capacityDisplay}`}
                             </div>
                             <div className="text-xs text-gray-400">{product.product_code}</div>
-                          </td>
-                          <td className="px-2 py-2.5 text-center">
-                            <input
-                              ref={(el) => { quantityInputRefs.current[`${branchIndex}-${productIndex}`] = el; }}
-                              type="number"
-                              min="1"
-                              value={product.quantity}
-                              onChange={(e) => handleUpdateProductQuantity(branchIndex, productIndex, parseInt(e.target.value) || 1)}
-                              className="w-14 px-1.5 py-1 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                            />
-                          </td>
-                          <td className="px-2 py-2.5 text-right">
+                          </div>
+                          {!isReadOnly && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveProductFromBranch(branchIndex, productIndex)}
+                              className="text-gray-400 hover:text-red-600 p-0.5 rounded transition-colors flex-shrink-0 mt-0.5"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        {/* Row 2: Qty, Price, Discount, Total */}
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            ref={(el) => { quantityInputRefs.current[`${branchIndex}-${productIndex}`] = el; }}
+                            type="number"
+                            min="1"
+                            value={product.quantity}
+                            onChange={(e) => handleUpdateProductQuantity(branchIndex, productIndex, parseInt(e.target.value) || 1)}
+                            disabled={isReadOnly}
+                            className="w-12 px-1 py-1 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] disabled:bg-gray-100 disabled:text-gray-500"
+                          />
+                          <span className="text-gray-300 text-xs">&times;</span>
+                          <div className="relative">
                             <input
                               type="number"
                               min="0"
                               step="0.01"
                               value={product.unit_price}
                               onChange={(e) => handleUpdateProductPrice(branchIndex, productIndex, parseFloat(e.target.value) || 0)}
-                              className="w-20 px-1.5 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
+                              disabled={isReadOnly}
+                              className="w-16 px-1 pr-4 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] disabled:bg-gray-100 disabled:text-gray-500"
                             />
-                          </td>
-                          <td className="px-2 py-2.5">
-                            <div className="flex items-stretch">
-                              <input
-                                type="number"
-                                min="0"
-                                max={product.discount_type === 'percent' ? 100 : undefined}
-                                step="0.01"
-                                value={product.discount_value}
-                                onChange={(e) => handleUpdateProductDiscount(branchIndex, productIndex, parseFloat(e.target.value) || 0)}
-                                className="w-14 px-1.5 py-1 border border-gray-300 rounded-l border-r-0 text-center text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:z-10"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleToggleProductDiscountType(branchIndex, productIndex)}
-                                className="px-2 text-xs font-medium border border-gray-300 rounded-r bg-gray-50 hover:bg-gray-100 transition-colors min-w-[28px] flex items-center justify-center"
-                                title={product.discount_type === 'percent' ? 'เปลี่ยนเป็นจำนวนเงิน' : 'เปลี่ยนเป็นเปอร์เซ็นต์'}
-                              >
-                                {product.discount_type === 'percent' ? '%' : '฿'}
-                              </button>
-                            </div>
-                          </td>
-                          <td className="px-2 py-2.5 text-right text-sm font-medium text-gray-900">
-                            {calculateProductTotal(product).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-1 py-2.5 text-center">
+                            <span className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-300 text-xs pointer-events-none">฿</span>
+                          </div>
+                          <div className="flex items-stretch">
+                            <input
+                              type="number"
+                              min="0"
+                              max={product.discount_type === 'percent' ? 100 : undefined}
+                              step="0.01"
+                              value={product.discount_value}
+                              onChange={(e) => handleUpdateProductDiscount(branchIndex, productIndex, parseFloat(e.target.value) || 0)}
+                              disabled={isReadOnly}
+                              className="w-10 px-1 py-1 border border-gray-300 rounded-l border-r-0 text-center text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:z-10 disabled:bg-gray-100 disabled:text-gray-500"
+                            />
                             <button
                               type="button"
-                              onClick={() => handleRemoveProductFromBranch(branchIndex, productIndex)}
-                              className="text-gray-400 hover:text-red-600 p-0.5 rounded transition-colors"
+                              onClick={() => handleToggleProductDiscountType(branchIndex, productIndex)}
+                              disabled={isReadOnly}
+                              className="px-1.5 text-xs font-medium border border-gray-300 rounded-r bg-gray-50 hover:bg-gray-100 transition-colors min-w-[24px] flex items-center justify-center disabled:opacity-50"
+                              title={product.discount_type === 'percent' ? 'เปลี่ยนเป็นจำนวนเงิน' : 'เปลี่ยนเป็นเปอร์เซ็นต์'}
                             >
-                              <X className="w-4 h-4" />
+                              {product.discount_type === 'percent' ? '%' : '฿'}
                             </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                          </div>
+                          <span className="ml-auto text-sm font-medium text-gray-900 whitespace-nowrap">
+                            {calculateProductTotal(product).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* Full page mode: table layout */
+                <div>
+                  <table className="w-full table-fixed">
+                    <thead className="bg-gray-50 border-b text-xs">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-medium text-gray-500 uppercase">สินค้า</th>
+                        <th className="px-2 py-2 text-center font-medium text-gray-500 uppercase w-16">จำนวน</th>
+                        <th className="px-2 py-2 text-right font-medium text-gray-500 uppercase w-24">ราคา</th>
+                        <th className="px-2 py-2 text-center font-medium text-gray-500 uppercase w-24">ส่วนลด</th>
+                        <th className="px-2 py-2 text-right font-medium text-gray-500 uppercase w-24">รวม</th>
+                        <th className="px-1 py-2 w-8"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {branch.products.map((product, productIndex) => {
+                        const capacityDisplay = getBottleSizeDisplay(product.bottle_size);
+                        return (
+                          <tr key={product.variation_id} className="hover:bg-gray-50/50">
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center gap-2.5">
+                                {product.image ? (
+                                  <img
+                                    src={product.image}
+                                    alt={product.product_name}
+                                    className="w-16 h-16 object-cover rounded flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                                    onClick={() => setLightboxImage(product.image!)}
+                                  />
+                                ) : (
+                                  <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center flex-shrink-0">
+                                    <Package className="w-6 h-6 text-gray-400" />
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium text-gray-900 line-clamp-2">
+                                    {product.product_name}{capacityDisplay && ` - ${capacityDisplay}`}
+                                  </div>
+                                  <div className="text-xs text-gray-400">{product.product_code}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-2 py-2.5 text-center">
+                              <input
+                                ref={(el) => { quantityInputRefs.current[`${branchIndex}-${productIndex}`] = el; }}
+                                type="number"
+                                min="1"
+                                value={product.quantity}
+                                onChange={(e) => handleUpdateProductQuantity(branchIndex, productIndex, parseInt(e.target.value) || 1)}
+                                disabled={isReadOnly}
+                                className="w-14 px-1.5 py-1 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] disabled:bg-gray-100 disabled:text-gray-500"
+                              />
+                            </td>
+                            <td className="px-2 py-2.5 text-right">
+                              <div className="relative inline-block">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={product.unit_price}
+                                  onChange={(e) => handleUpdateProductPrice(branchIndex, productIndex, parseFloat(e.target.value) || 0)}
+                                  disabled={isReadOnly}
+                                  className="w-20 px-1.5 pr-5 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] disabled:bg-gray-100 disabled:text-gray-500"
+                                />
+                                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-300 text-xs pointer-events-none">฿</span>
+                              </div>
+                            </td>
+                            <td className="px-2 py-2.5">
+                              <div className="flex items-stretch">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={product.discount_type === 'percent' ? 100 : undefined}
+                                  step="0.01"
+                                  value={product.discount_value}
+                                  onChange={(e) => handleUpdateProductDiscount(branchIndex, productIndex, parseFloat(e.target.value) || 0)}
+                                  disabled={isReadOnly}
+                                  className="w-14 px-1.5 py-1 border border-gray-300 rounded-l border-r-0 text-center text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:z-10 disabled:bg-gray-100 disabled:text-gray-500"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleProductDiscountType(branchIndex, productIndex)}
+                                  disabled={isReadOnly}
+                                  className="px-2 text-xs font-medium border border-gray-300 rounded-r bg-gray-50 hover:bg-gray-100 transition-colors min-w-[28px] flex items-center justify-center disabled:opacity-50"
+                                  title={product.discount_type === 'percent' ? 'เปลี่ยนเป็นจำนวนเงิน' : 'เปลี่ยนเป็นเปอร์เซ็นต์'}
+                                >
+                                  {product.discount_type === 'percent' ? '%' : '฿'}
+                                </button>
+                              </div>
+                            </td>
+                            <td className="px-2 py-2.5 text-right text-sm font-medium text-gray-900">
+                              {calculateProductTotal(product).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-1 py-2.5 text-center">
+                              {!isReadOnly && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveProductFromBranch(branchIndex, productIndex)}
+                                  className="text-gray-400 hover:text-red-600 p-0.5 rounded transition-colors"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {/* Add Product Search */}
-              <div className="px-4 py-3 border-t border-gray-100">
+              {!isReadOnly && <div className="px-4 py-3 border-t border-gray-100">
                 <div className="relative">
                   <div className="flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 rounded-lg hover:border-[#E9B308] transition-colors bg-white">
                     <Plus className="w-4 h-4 text-gray-400 flex-shrink-0" />
                     <input
+                      ref={(el) => { productSearchRefs.current[branchIndex] = el; }}
                       type="text"
                       value={productSearches[branchIndex] || ''}
                       onChange={(e) => {
@@ -1086,15 +1463,15 @@ export default function OrderForm({
                                 className="w-full px-3 py-2 text-left hover:bg-gray-50 transition-colors flex items-center gap-3"
                               >
                                 {product.image ? (
-                                  <img src={product.image} alt={product.name} className="w-8 h-8 object-cover rounded flex-shrink-0" />
+                                  <img src={product.image} alt={product.name} className="w-10 h-10 object-cover rounded flex-shrink-0" />
                                 ) : (
-                                  <div className="w-8 h-8 bg-gray-100 rounded flex items-center justify-center flex-shrink-0">
-                                    <Package className="w-4 h-4 text-gray-400" />
+                                  <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center flex-shrink-0">
+                                    <Package className="w-5 h-5 text-gray-400" />
                                   </div>
                                 )}
                                 <div className="flex-1 min-w-0">
                                   <div className="text-sm font-medium truncate">
-                                    {product.name} {capacityDisplay && <span className="text-gray-400 font-normal">({capacityDisplay})</span>}
+                                    {product.name}{capacityDisplay && ` - ${capacityDisplay}`}
                                   </div>
                                   <div className="text-xs text-gray-400">{product.code} · ฿{product.default_price}</div>
                                 </div>
@@ -1105,39 +1482,38 @@ export default function OrderForm({
                     </div>
                   )}
                 </div>
-              </div>
+              </div>}
 
-              {branch.products.length === 0 && (
-                <div className="text-center py-8 text-gray-400">
+              {branch.products.length === 0 && !isReadOnly && (
+                <div className={`text-center py-8 ${fieldErrors[`branch_${branchIndex}`] ? 'text-red-400' : 'text-gray-400'}`}>
                   <Package className="w-10 h-10 mx-auto mb-2" />
-                  <p className="text-sm">เพิ่มสินค้าโดยพิมพ์ค้นหาด้านบน</p>
+                  <p className="text-sm">{fieldErrors[`branch_${branchIndex}`] || 'เพิ่มสินค้าโดยพิมพ์ค้นหาด้านบน'}</p>
                 </div>
               )}
 
-              {/* Branch Total */}
+              {/* Shipping Fee + Branch Total */}
               {branch.products.length > 0 && (
-                <div className="px-4 py-3 bg-gray-50 border-t">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-medium text-gray-600">
-                        ยอดรวมสาขา {branch.address_name}
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm text-gray-500">ค่าส่ง:</span>
-                        <div className="relative">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">฿</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={branch.shipping_fee || ''}
-                            onChange={(e) => handleUpdateBranchShippingFee(branchIndex, parseFloat(e.target.value) || 0)}
-                            placeholder="0"
-                            className="w-24 pl-6 pr-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308]"
-                          />
-                        </div>
-                      </div>
+                <div className="px-4 py-3 bg-gray-50 border-t space-y-1.5">
+                  <div className="flex items-center justify-end gap-2">
+                    <span className="text-xs text-gray-500">ค่าจัดส่ง</span>
+                    <div className="relative">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">฿</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={branch.shipping_fee || ''}
+                        onChange={(e) => handleUpdateBranchShippingFee(branchIndex, parseFloat(e.target.value) || 0)}
+                        placeholder="0"
+                        disabled={isReadOnly}
+                        className="w-24 pl-5 pr-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] disabled:bg-gray-100 disabled:text-gray-500"
+                      />
                     </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <span className="text-sm font-medium text-gray-500">
+                      ยอดรวมสาขา {branch.address_name}
+                    </span>
                     <span className="text-lg font-bold text-[#E9B308]">
                       ฿{(calculateBranchTotal(branch) + (branch.shipping_fee || 0)).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                     </span>
@@ -1163,7 +1539,8 @@ export default function OrderForm({
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={3}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm"
+                  disabled={isReadOnly}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E9B308] text-sm disabled:bg-gray-100 disabled:text-gray-500"
                   placeholder="หมายเหตุสำหรับลูกค้า, การจัดส่ง..."
                 />
               </div>
@@ -1175,7 +1552,8 @@ export default function OrderForm({
                   value={internalNotes}
                   onChange={(e) => setInternalNotes(e.target.value)}
                   rows={2}
-                  className="w-full px-3 py-2.5 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm bg-orange-50"
+                  disabled={isReadOnly}
+                  className="w-full px-3 py-2.5 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm bg-orange-50 disabled:bg-gray-100 disabled:text-gray-500 disabled:border-gray-300"
                   placeholder="หมายเหตุภายใน..."
                 />
               </div>
@@ -1185,18 +1563,16 @@ export default function OrderForm({
             <div className="bg-gray-50 rounded-lg p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">สรุปคำสั่งซื้อ</h3>
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between text-gray-600">
+                <div className="flex justify-between text-gray-500">
                   <span>ยอดรวมสินค้า (รวม VAT)</span>
                   <span>฿{itemsTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                 </div>
-                {totalShippingFee > 0 && (
-                  <div className="flex justify-between text-gray-600">
-                    <span>ค่าจัดส่ง</span>
-                    <span>฿{totalShippingFee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
-                  </div>
-                )}
+                <div className="flex justify-between text-gray-500">
+                  <span>ค่าจัดส่ง</span>
+                  <span>฿{totalShippingFee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">ส่วนลดรวม</span>
+                  <span className="text-gray-500">ส่วนลดรวม</span>
                   <div className="flex items-stretch">
                     <input
                       type="number"
@@ -1205,7 +1581,8 @@ export default function OrderForm({
                       step="0.01"
                       value={orderDiscount}
                       onChange={(e) => setOrderDiscount(parseFloat(e.target.value) || 0)}
-                      className="w-20 px-2 py-1 border border-gray-300 rounded-l border-r-0 text-right text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:z-10"
+                      disabled={isReadOnly}
+                      className="w-20 px-2 py-1 border border-gray-300 rounded-l border-r-0 text-right text-sm focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:z-10 disabled:bg-gray-100 disabled:text-gray-500"
                     />
                     <button
                       type="button"
@@ -1213,7 +1590,8 @@ export default function OrderForm({
                         setOrderDiscountType(orderDiscountType === 'percent' ? 'amount' : 'percent');
                         setOrderDiscount(0);
                       }}
-                      className="px-2 text-xs font-medium border border-gray-300 rounded-r bg-gray-50 hover:bg-gray-100 transition-colors min-w-[28px] flex items-center justify-center"
+                      disabled={isReadOnly}
+                      className="px-2 text-xs font-medium border border-gray-300 rounded-r bg-gray-50 hover:bg-gray-100 transition-colors min-w-[28px] flex items-center justify-center disabled:opacity-50"
                       title={orderDiscountType === 'percent' ? 'เปลี่ยนเป็นจำนวนเงิน' : 'เปลี่ยนเป็นเปอร์เซ็นต์'}
                     >
                       {orderDiscountType === 'percent' ? '%' : '฿'}
@@ -1239,7 +1617,7 @@ export default function OrderForm({
       )}
 
       {/* Action Buttons */}
-      {branchOrders.length > 0 && branchOrders.some(b => b.products.length > 0) && (
+      {!isReadOnly && branchOrders.length > 0 && branchOrders.some(b => b.products.length > 0) && (
         <div className="flex justify-end gap-3">
           <button
             type="button"
@@ -1261,10 +1639,89 @@ export default function OrderForm({
             ) : (
               <>
                 <Save className="w-4 h-4" />
-                บันทึกคำสั่งซื้อ
+                {isEditMode ? 'บันทึกการแก้ไข' : 'บันทึกคำสั่งซื้อ'}
               </>
             )}
           </button>
+        </div>
+      )}
+      {/* Image Lightbox */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70"
+          onClick={() => setLightboxImage(null)}
+          role="dialog"
+        >
+          <button
+            onClick={() => setLightboxImage(null)}
+            className="absolute top-4 right-4 text-white/80 hover:text-white p-2 rounded-full bg-black/30 hover:bg-black/50 transition-colors z-10"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={lightboxImage}
+            alt="Product"
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
+      {/* Success Modal with Bill Online */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4 w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="text-center">
+              <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                <CheckCircle className="w-10 h-10 text-green-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">สร้างคำสั่งซื้อสำเร็จ!</h3>
+              {savedOrderNumber && (
+                <p className="text-gray-600 mb-4">เลขที่คำสั่งซื้อ: <span className="font-medium">{savedOrderNumber}</span></p>
+              )}
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const billUrl = `${window.location.origin}/bills/${savedOrderId}`;
+                    navigator.clipboard.writeText(billUrl);
+                    window.open(`/bills/${savedOrderId}`, '_blank');
+                  }}
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  เปิดบิลออนไลน์
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const billUrl = `${window.location.origin}/bills/${savedOrderId}`;
+                    navigator.clipboard.writeText(billUrl).then(() => {
+                      alert('คัดลอกลิงก์บิลออนไลน์แล้ว');
+                    });
+                  }}
+                  className="w-full flex items-center justify-center gap-2 border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                >
+                  <Copy className="w-4 h-4" />
+                  คัดลอกลิงก์บิลออนไลน์
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSuccessModal(false);
+                    if (onSuccess) {
+                      onSuccess(savedOrderId);
+                    } else {
+                      router.push(`/orders/${savedOrderId}`);
+                    }
+                  }}
+                  className="w-full px-4 py-2.5 bg-[#E9B308] text-[#00231F] rounded-lg hover:bg-[#d4a307] transition-colors font-medium"
+                >
+                  ดูคำสั่งซื้อ
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </form>
