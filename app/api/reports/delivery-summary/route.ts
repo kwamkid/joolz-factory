@@ -94,12 +94,13 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Step 2: Fetch order items
+    // Step 2: Fetch order items (include variation_id for variation images)
     const { data: orderItems, error: itemsError } = await supabaseAdmin
       .from('order_items')
       .select(`
         id,
         order_id,
+        variation_id,
         product_id,
         product_code,
         product_name,
@@ -128,10 +129,42 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Step 2b: Fetch product images from products
+    // Step 2b: Fetch images — variation images from product_images, fallback to product.image
     const productIds = [...new Set(orderItems?.map(i => i.product_id).filter(Boolean))];
+    const variationIds = [...new Set(orderItems?.map(i => i.variation_id).filter(Boolean))];
+
+    // Map: variation_id -> image_url (from product_images table)
+    const variationImageMap = new Map<string, string>();
+    // Map: product_id -> image_url (fallback from product_images or products.image)
     const productImageMap = new Map<string, string>();
 
+    // Fetch from product_images table (both variation-level and product-level)
+    const orConditions: string[] = [];
+    if (variationIds.length > 0) {
+      orConditions.push(`variation_id.in.(${variationIds.join(',')})`);
+    }
+    if (productIds.length > 0) {
+      orConditions.push(`product_id.in.(${productIds.join(',')})`);
+    }
+
+    if (orConditions.length > 0) {
+      const { data: images } = await supabaseAdmin
+        .from('product_images')
+        .select('product_id, variation_id, image_url, sort_order')
+        .or(orConditions.join(','))
+        .order('sort_order', { ascending: true });
+
+      (images || []).forEach(img => {
+        if (img.variation_id && !variationImageMap.has(img.variation_id)) {
+          variationImageMap.set(img.variation_id, img.image_url);
+        }
+        if (img.product_id && !productImageMap.has(img.product_id)) {
+          productImageMap.set(img.product_id, img.image_url);
+        }
+      });
+    }
+
+    // Also fetch products.image as final fallback
     if (productIds.length > 0) {
       const { data: productsData } = await supabaseAdmin
         .from('products')
@@ -139,7 +172,7 @@ export async function GET(request: NextRequest) {
         .in('id', productIds);
 
       productsData?.forEach(p => {
-        if (p.image) {
+        if (p.image && !productImageMap.has(p.id)) {
           productImageMap.set(p.id, p.image);
         }
       });
@@ -262,14 +295,16 @@ export async function GET(request: NextRequest) {
 
       // Add product (merge quantities if same product+bottle in same delivery)
       const productKey = `${orderItem.product_code}__${orderItem.bottle_size || ''}`;
-      const productImage = productImageMap.get(orderItem.product_id) || null;
+      // Variation image > product_images product-level > products.image
+      const itemImage = (orderItem.variation_id ? variationImageMap.get(orderItem.variation_id) : null)
+        || productImageMap.get(orderItem.product_id) || null;
       if (!delivery.products.has(productKey)) {
         delivery.products.set(productKey, {
           productName: orderItem.product_name,
           productCode: orderItem.product_code,
           bottleSize: orderItem.bottle_size || null,
           quantity: 0,
-          image: productImage,
+          image: itemImage,
         });
       }
       delivery.products.get(productKey)!.quantity += shipment.quantity;
@@ -281,7 +316,7 @@ export async function GET(request: NextRequest) {
           productCode: orderItem.product_code,
           bottleSize: orderItem.bottle_size || null,
           totalQuantity: 0,
-          image: productImage,
+          image: itemImage,
         });
       }
       productSummaryMap.get(productKey)!.totalQuantity += shipment.quantity;

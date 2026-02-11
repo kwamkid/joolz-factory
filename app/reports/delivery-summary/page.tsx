@@ -35,10 +35,11 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  Download,
   Check,
   StickyNote,
   GripVertical,
+  FileText,
+  ClipboardList,
 } from 'lucide-react';
 
 // Interfaces
@@ -116,7 +117,7 @@ interface ReportData {
   };
 }
 
-// Status badge components (same pattern as orders page)
+// Status badge components
 function OrderStatusBadge({ status, clickable = false }: { status: string; clickable?: boolean }) {
   const statusConfig: Record<string, { label: string; color: string; hoverColor: string }> = {
     new: { label: 'ใหม่', color: 'bg-blue-100 text-blue-700', hoverColor: 'hover:bg-blue-200' },
@@ -136,6 +137,7 @@ function OrderStatusBadge({ status, clickable = false }: { status: string; click
 function PaymentStatusBadge({ status, clickable = false }: { status: string; clickable?: boolean }) {
   const statusConfig: Record<string, { label: string; color: string; hoverColor: string }> = {
     pending: { label: 'รอชำระ', color: 'bg-orange-100 text-orange-700', hoverColor: 'hover:bg-orange-200' },
+    verifying: { label: 'รอตรวจสอบ', color: 'bg-purple-100 text-purple-700', hoverColor: '' },
     paid: { label: 'ชำระแล้ว', color: 'bg-green-100 text-green-700', hoverColor: '' },
   };
   const config = statusConfig[status] || statusConfig.pending;
@@ -203,7 +205,6 @@ function SortableDeliveryCard({
       {/* Card Header */}
       <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
-          {/* Drag Handle */}
           <button
             {...attributes}
             {...listeners}
@@ -212,7 +213,6 @@ function SortableDeliveryCard({
           >
             <GripVertical className="w-5 h-5" />
           </button>
-          {/* Large index number */}
           <span className="flex items-center justify-center w-8 h-8 rounded-full bg-[#E9B308] text-[#00231F] text-base font-bold flex-shrink-0">
             {index + 1}
           </span>
@@ -222,7 +222,6 @@ function SortableDeliveryCard({
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          {/* Order Status Badge */}
           {getNextOrderStatus(delivery.orderStatus) ? (
             <button
               onClick={() => handleOrderStatusClick(delivery)}
@@ -233,8 +232,6 @@ function SortableDeliveryCard({
           ) : (
             <OrderStatusBadge status={delivery.orderStatus} />
           )}
-
-          {/* Payment Status Badge */}
           {delivery.orderStatus !== 'cancelled' && (
             getNextPaymentStatus(delivery.paymentStatus) ? (
               <button
@@ -254,7 +251,6 @@ function SortableDeliveryCard({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Left Column: Address, Contact, Notes */}
           <div className="space-y-3">
-            {/* Address - clickable to Google Maps */}
             <a
               href={mapLink || '#'}
               target="_blank"
@@ -272,7 +268,6 @@ function SortableDeliveryCard({
               </div>
             </a>
 
-            {/* Contact & Phone */}
             <div className="flex flex-wrap gap-4 text-sm">
               {(delivery.shippingAddress.contactPerson || delivery.customer.contactPerson) && (
                 <div className="flex items-center gap-1.5 text-gray-600">
@@ -291,7 +286,6 @@ function SortableDeliveryCard({
               )}
             </div>
 
-            {/* Notes - deduplicated */}
             {uniqueNotes.length > 0 && (
               <div className="space-y-1">
                 {uniqueNotes.map((note, nIndex) => (
@@ -355,11 +349,15 @@ export default function DeliverySummaryPage() {
   const router = useRouter();
   const { session, userProfile, loading: authLoading } = useAuth();
 
+  const [activeTab, setActiveTab] = useState<'packing' | 'delivery'>('packing');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const [showProductSummary, setShowProductSummary] = useState(false);
+
+  // PDF generation state
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   // Status update modal
   const [statusUpdateModal, setStatusUpdateModal] = useState<{
@@ -379,8 +377,7 @@ export default function DeliverySummaryPage() {
     notes: '',
   });
 
-  // Custom delivery ordering per date (for drag-to-reorder)
-  // Map<date, deliveryKey[]> where deliveryKey = `${orderId}-${addressId}`
+  // Custom delivery ordering per date
   const [deliveryOrder, setDeliveryOrder] = useState<Map<string, string[]>>(new Map());
 
   // DnD sensors
@@ -630,7 +627,6 @@ export default function DeliverySummaryPage() {
 
         if (addr.googleMapsLink) text += `   🗺️ ${addr.googleMapsLink}\n`;
 
-        // Deduplicated notes for text export too
         const notes = getUniqueNotes(delivery);
         notes.forEach(n => { text += `   📝 ${n.text}\n`; });
 
@@ -706,13 +702,191 @@ export default function DeliverySummaryPage() {
     URL.revokeObjectURL(link.href);
   };
 
+  // PDF export for packing list — pdfmake with Thai font (Sarabun)
+  const handleExportPackingPdf = async () => {
+    if (!reportData || reportData.productSummary.length === 0) return;
+
+    setGeneratingPdf(true);
+    try {
+      const pdfMake = (await import('pdfmake/build/pdfmake')).default;
+
+      // Load Sarabun fonts as base64 for pdfmake VFS
+      const [regularBuf, boldBuf] = await Promise.all([
+        fetch('/fonts/Sarabun-Regular.ttf').then(r => r.arrayBuffer()),
+        fetch('/fonts/Sarabun-Bold.ttf').then(r => r.arrayBuffer()),
+      ]);
+
+      const toBase64 = (buf: ArrayBuffer) => {
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        return btoa(binary);
+      };
+
+      const sarabunVfs = {
+        'Sarabun-Regular.ttf': toBase64(regularBuf),
+        'Sarabun-Bold.ttf': toBase64(boldBuf),
+      };
+
+      const sarabunFonts = {
+        Sarabun: {
+          normal: 'Sarabun-Regular.ttf',
+          bold: 'Sarabun-Bold.ttf',
+          italics: 'Sarabun-Regular.ttf',
+          bolditalics: 'Sarabun-Bold.ttf',
+        },
+      };
+
+      pdfMake.addFontContainer({ vfs: sarabunVfs, fonts: sarabunFonts });
+
+      // Date string in Thai
+      const dateStr = new Date(deliveryDate).toLocaleDateString('th-TH', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      });
+      const summaryText = `${reportData.productSummary.length} รายการ / ${reportData.totals.totalBottles.toLocaleString()} ขวด`;
+
+      // Load all product images as base64 data URLs
+      const imageDataUrls = await Promise.all(
+        reportData.productSummary.map(async (product) => {
+          if (!product.image) return null;
+          try {
+            const imgUrl = getImageUrl(product.image);
+            const response = await fetch(imgUrl);
+            if (!response.ok) return null;
+            const blob = await response.blob();
+            return new Promise<string | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(blob);
+            });
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      // Build table body
+      const tableHeader = [
+        { text: '#', style: 'tableHeader', alignment: 'center' as const },
+        { text: 'รูป', style: 'tableHeader', alignment: 'center' as const },
+        { text: 'สินค้า', style: 'tableHeader' },
+        { text: 'จำนวน', style: 'tableHeader', alignment: 'center' as const },
+      ];
+
+      const tableBody: any[][] = [tableHeader];
+
+      reportData.productSummary.forEach((product, index) => {
+        const fullName = product.productName + (product.bottleSize ? ` - ${product.bottleSize}` : '');
+        const imgDataUrl = imageDataUrls[index];
+
+        const imageCell = imgDataUrl
+          ? { image: imgDataUrl, width: 42, height: 42, alignment: 'center' as const, margin: [0, 2, 0, 2] as [number, number, number, number] }
+          : { text: '-', alignment: 'center' as const, color: '#aaaaaa', fontSize: 8, margin: [0, 14, 0, 14] as [number, number, number, number] };
+
+        tableBody.push([
+          { text: `${index + 1}`, alignment: 'center' as const, color: '#999999', fontSize: 9, margin: [0, 14, 0, 0] as [number, number, number, number] },
+          imageCell,
+          {
+            stack: [
+              { text: fullName, bold: true, fontSize: 9, color: '#1e1e1e' },
+              { text: product.productCode || '-', fontSize: 7, color: '#8c8c8c', margin: [0, 2, 0, 0] as [number, number, number, number] },
+            ],
+            margin: [0, 8, 0, 4] as [number, number, number, number],
+          },
+          {
+            stack: [
+              { text: `${product.totalQuantity}`, bold: true, fontSize: 14, color: '#00231F', alignment: 'center' as const },
+              { text: 'ขวด', fontSize: 7, color: '#787878', alignment: 'center' as const, margin: [0, 1, 0, 0] as [number, number, number, number] },
+            ],
+            margin: [0, 10, 0, 0] as [number, number, number, number],
+          },
+        ]);
+      });
+
+      // pdfmake document definition
+      const docDefinition: any = {
+        pageSize: 'A4',
+        pageMargins: [30, 30, 30, 30],
+        defaultStyle: {
+          font: 'Sarabun',
+          fontSize: 10,
+        },
+        content: [
+          // Title
+          { text: 'รายการจัดของ (Packing List)', style: 'title', alignment: 'center' },
+          { text: dateStr, style: 'subtitle', alignment: 'center', margin: [0, 4, 0, 0] },
+          { text: summaryText, fontSize: 9, color: '#666666', alignment: 'center', margin: [0, 2, 0, 8] },
+
+          // Gold divider
+          {
+            canvas: [
+              { type: 'line', x1: 0, y1: 0, x2: 535, y2: 0, lineWidth: 1, lineColor: '#E9B308' },
+            ],
+            margin: [0, 0, 0, 8],
+          },
+
+          // Product table
+          {
+            table: {
+              headerRows: 1,
+              widths: [22, 50, '*', 50],
+              body: tableBody,
+            },
+            layout: {
+              fillColor: (rowIndex: number) => {
+                if (rowIndex === 0) return '#f5f5f5';
+                return rowIndex % 2 === 0 ? '#fafafa' : null;
+              },
+              hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length) ? 0.5 : 0.3,
+              vLineWidth: () => 0,
+              hLineColor: (i: number) => i === 0 || i === 1 ? '#c8c8c8' : '#e6e6e6',
+              paddingLeft: () => 4,
+              paddingRight: () => 4,
+              paddingTop: () => 2,
+              paddingBottom: () => 2,
+            },
+          },
+
+          // Gold divider after table
+          {
+            canvas: [
+              { type: 'line', x1: 0, y1: 0, x2: 535, y2: 0, lineWidth: 1, lineColor: '#E9B308' },
+            ],
+            margin: [0, 8, 0, 6],
+          },
+
+          // Footer total
+          {
+            text: `รวมทั้งหมด: ${reportData.totals.totalBottles.toLocaleString()} ขวด (${reportData.productSummary.length} รายการ)`,
+            bold: true,
+            fontSize: 12,
+            color: '#00231F',
+            alignment: 'center',
+          },
+        ],
+        styles: {
+          title: { fontSize: 16, bold: true, color: '#00231F' },
+          subtitle: { fontSize: 10, color: '#666666' },
+          tableHeader: { fontSize: 9, bold: true, color: '#666666', margin: [0, 2, 0, 2] },
+        },
+      };
+
+      pdfMake.createPdf(docDefinition).download(`packing-list-${deliveryDate}.pdf`);
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      alert('ไม่สามารถสร้าง PDF ได้');
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
   const formatAddress = (addr: ShippingAddress): string => {
     return [addr.addressLine1, addr.district, addr.amphoe, addr.province, addr.postalCode].filter(Boolean).join(', ');
   };
 
   const getMapLink = (addr: ShippingAddress, customerName?: string): string | null => {
     if (addr.googleMapsLink) return addr.googleMapsLink;
-    // Fallback: customer name + branch name (addressName)
     const parts: string[] = [];
     if (customerName) parts.push(customerName);
     if (addr.addressName && addr.addressName !== 'ไม่ระบุ' && addr.addressName !== customerName) {
@@ -742,45 +916,89 @@ export default function DeliverySummaryPage() {
           <div className="flex items-center gap-3">
             <Truck className="w-8 h-8 text-[#E9B308]" />
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">การจัดส่ง</h1>
-              <p className="text-sm text-gray-600">สรุปรายการจัดส่งสินค้าตามวันที่</p>
+              <h1 className="text-2xl font-bold text-gray-900">จัดของ & ส่ง</h1>
+              <p className="text-sm text-gray-600">เตรียมสินค้าและจัดส่งตามวันที่</p>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCopyText}
-              disabled={!reportData || reportData.byDate.length === 0}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {copySuccess ? (
-                <><Check className="w-4 h-4 text-green-500" /><span className="text-green-600">คัดลอกแล้ว!</span></>
-              ) : (
-                <><Copy className="w-4 h-4" />คัดลอกข้อความ</>
-              )}
-            </button>
-            <button
-              onClick={handleDownloadText}
-              disabled={!reportData || reportData.byDate.length === 0}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-[#E9B308] text-[#00231F] hover:bg-[#d4a307] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Download className="w-4 h-4" />
-              ดาวน์โหลด .txt
-            </button>
           </div>
         </div>
 
-        {/* Filter */}
+        {/* Date Picker + Tab Switcher + Action Buttons */}
         <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="max-w-xs">
-            <DateRangePicker
-              value={selectedDate}
-              onChange={(val) => setSelectedDate(val)}
-              asSingle={true}
-              useRange={false}
-              showShortcuts={false}
-              showFooter={false}
-              placeholder="เลือกวันที่ส่ง"
-            />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            {/* Date Picker - first priority */}
+            <div className="max-w-xs">
+              <DateRangePicker
+                value={selectedDate}
+                onChange={(val) => setSelectedDate(val)}
+                asSingle={true}
+                useRange={false}
+                showShortcuts={false}
+                showFooter={false}
+                placeholder="เลือกวันที่ส่ง"
+              />
+            </div>
+
+            {/* Tabs */}
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setActiveTab('packing')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  activeTab === 'packing'
+                    ? 'bg-[#E9B308] text-[#00231F] shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <ClipboardList className="w-4 h-4" />
+                จัดของ
+              </button>
+              <button
+                onClick={() => setActiveTab('delivery')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  activeTab === 'delivery'
+                    ? 'bg-[#E9B308] text-[#00231F] shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Truck className="w-4 h-4" />
+                จัดส่ง
+                {reportData && reportData.totals.totalDeliveries > 0 && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-xs ${
+                    activeTab === 'delivery' ? 'bg-[#00231F]/20 text-[#00231F]' : 'bg-gray-200 text-gray-600'
+                  }`}>
+                    {reportData.totals.totalDeliveries}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Action buttons - contextual per tab */}
+            <div className="sm:ml-auto flex items-center gap-2">
+              {activeTab === 'packing' ? (
+                <button
+                  onClick={handleExportPackingPdf}
+                  disabled={!reportData || reportData.productSummary.length === 0 || generatingPdf}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-[#E9B308] text-[#00231F] hover:bg-[#d4a307] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {generatingPdf ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /><span>กำลังสร้าง PDF...</span></>
+                  ) : (
+                    <><FileText className="w-4 h-4" />Export PDF</>
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={handleCopyText}
+                  disabled={!reportData || reportData.byDate.length === 0}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {copySuccess ? (
+                    <><Check className="w-4 h-4 text-green-500" /><span className="text-green-600">คัดลอกแล้ว!</span></>
+                  ) : (
+                    <><Copy className="w-4 h-4" />สรุปการส่ง</>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -794,7 +1012,98 @@ export default function DeliverySummaryPage() {
           </div>
         )}
 
-        {!loading && reportData && (
+        {/* ===== TAB 1: จัดของ (Packing) ===== */}
+        {!loading && reportData && activeTab === 'packing' && (
+          <>
+            {/* Summary Cards */}
+            {reportData.totals.totalDeliveries > 0 && (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+                  <div className="text-2xl font-bold text-gray-900">{reportData.productSummary.length}</div>
+                  <div className="text-xs text-gray-500 mt-1">ชนิดสินค้า</div>
+                </div>
+                <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+                  <div className="text-2xl font-bold text-gray-900">{reportData.totals.totalBottles.toLocaleString()}</div>
+                  <div className="text-xs text-gray-500 mt-1">ขวดทั้งหมด</div>
+                </div>
+                <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+                  <div className="text-2xl font-bold text-gray-900">{reportData.totals.totalDeliveries}</div>
+                  <div className="text-xs text-gray-500 mt-1">จุดส่ง</div>
+                </div>
+              </div>
+            )}
+
+            {/* Product Packing Table */}
+            {reportData.productSummary.length === 0 ? (
+              <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+                <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">ไม่มีสินค้าที่ต้องจัดในวันที่เลือก</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-10">#</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">สินค้า</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase w-28">จำนวน</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {reportData.productSummary.map((product, index) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-400">{index + 1}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            {product.image ? (
+                              <img
+                                src={getImageUrl(product.image)}
+                                alt={product.productName}
+                                className="w-16 h-16 rounded-lg object-cover flex-shrink-0 border border-gray-200"
+                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                              />
+                            ) : (
+                              <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                <Package className="w-8 h-8 text-gray-300" />
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-medium text-gray-900 text-sm">
+                                {product.productName}{product.bottleSize ? ` - ${product.bottleSize}` : ''}
+                              </div>
+                              <div className="text-xs text-gray-400 font-mono">{product.productCode}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="inline-flex items-center gap-1 bg-[#E9B308]/10 text-[#00231F] px-3 py-1 rounded-full">
+                            <span className="text-lg font-bold">{product.totalQuantity}</span>
+                            <span className="text-xs text-gray-600">ขวด</span>
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50 border-t border-gray-200">
+                      <td colSpan={2} className="px-4 py-3 text-sm text-gray-600">
+                        {reportData.productSummary.length} รายการ
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-lg font-bold text-[#00231F]">
+                          รวม {reportData.totals.totalBottles.toLocaleString()} ขวด
+                        </span>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ===== TAB 2: จัดส่ง (Delivery) ===== */}
+        {!loading && reportData && activeTab === 'delivery' && (
           <>
             {/* Summary Cards */}
             {reportData.totals.totalDeliveries > 0 && (
@@ -827,7 +1136,6 @@ export default function DeliverySummaryPage() {
 
                 return (
                   <div key={dateGroup.date} className="space-y-3">
-                    {/* Date Header */}
                     <div className="flex items-center justify-between">
                       <h2 className="text-lg font-semibold text-gray-900">
                         {new Date(dateGroup.date).toLocaleDateString('th-TH', {
@@ -839,7 +1147,6 @@ export default function DeliverySummaryPage() {
                       </span>
                     </div>
 
-                    {/* Sortable Delivery Cards */}
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
@@ -970,7 +1277,6 @@ export default function DeliverySummaryPage() {
                       </span>
                     </p>
 
-                    {/* Payment Method */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         วิธีการชำระเงิน <span className="text-red-500">*</span>

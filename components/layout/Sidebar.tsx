@@ -70,7 +70,7 @@ const menuSections: MenuSection[] = [
         roles: ['admin', 'manager', 'sales']
       },
       {
-        label: 'การจัดส่ง',
+        label: 'จัดของ & ส่ง',
         href: '/reports/delivery-summary',
         icon: <Truck className="w-5 h-5" />,
         roles: ['admin', 'manager', 'sales']

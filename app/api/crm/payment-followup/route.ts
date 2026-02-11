@@ -39,6 +39,8 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search');
     const minDays = searchParams.get('min_days'); // Filter by aging
     const maxDays = searchParams.get('max_days');
+    const dateFrom = searchParams.get('date_from'); // e.g. '2025-01-01'
+    const dateTo = searchParams.get('date_to'); // e.g. '2025-01-31'
     const sortBy = searchParams.get('sort_by') || 'days_overdue';
     const sortOrder = searchParams.get('sort_order') || 'desc';
 
@@ -46,8 +48,8 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '20', 10);
 
-    // Get all unpaid orders (payment_status = pending) that are not cancelled
-    const { data: orders, error } = await supabaseAdmin
+    // Get all unpaid orders (payment_status = pending/verifying) that are not cancelled
+    let ordersQuery = supabaseAdmin
       .from('orders')
       .select(`
         id,
@@ -68,8 +70,18 @@ export async function GET(request: NextRequest) {
           credit_days
         )
       `)
-      .eq('payment_status', 'pending')
-      .neq('order_status', 'cancelled')
+      .in('payment_status', ['pending', 'verifying'])
+      .neq('order_status', 'cancelled');
+
+    // Apply date range filter on order_date
+    if (dateFrom) {
+      ordersQuery = ordersQuery.gte('order_date', dateFrom);
+    }
+    if (dateTo) {
+      ordersQuery = ordersQuery.lte('order_date', dateTo);
+    }
+
+    const { data: orders, error } = await ordersQuery
       .order('order_date', { ascending: true });
 
     if (error) {
@@ -120,6 +132,7 @@ export async function GET(request: NextRequest) {
         deliveryDate: string | null;
         totalAmount: number;
         orderStatus: string;
+        paymentStatus: string;
         daysAgo: number;
       }>;
     }>();
@@ -175,6 +188,7 @@ export async function GET(request: NextRequest) {
         deliveryDate: order.delivery_date,
         totalAmount: order.total_amount,
         orderStatus: order.order_status,
+        paymentStatus: order.payment_status,
         daysAgo
       });
     });

@@ -23,7 +23,10 @@ import {
   MessageCircle,
   ExternalLink,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  X,
+  ArrowRight,
+  FileText
 } from 'lucide-react';
 
 interface CRMCustomer {
@@ -127,16 +130,20 @@ function DaysBadge({ days, avgFrequency }: { days: number | null; avgFrequency: 
   );
 }
 
-// Frequency badge
-function FrequencyBadge({ frequency }: { frequency: number | null }) {
+// Frequency badge (clickable to show order history)
+function FrequencyBadge({ frequency, onClick }: { frequency: number | null; onClick?: () => void }) {
   if (frequency === null) {
     return <span className="text-gray-400 text-sm">-</span>;
   }
 
   return (
-    <span className="text-sm text-gray-700">
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+      className="text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
+      title="ดูประวัติการสั่งซื้อ"
+    >
       ทุก ~{frequency} วัน
-    </span>
+    </button>
   );
 }
 
@@ -199,6 +206,14 @@ export default function CRMFollowUpPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(20);
+
+  // Order history modal
+  const [orderHistoryModal, setOrderHistoryModal] = useState<{
+    show: boolean;
+    customer: CRMCustomer | null;
+    orders: Array<{ order_number: string; order_date: string; total_amount: number; order_status: string }>;
+    loading: boolean;
+  }>({ show: false, customer: null, orders: [], loading: false });
 
   // Debounce search
   useEffect(() => {
@@ -291,6 +306,26 @@ export default function CRMFollowUpPage() {
 
   const handleContactLine = (lineUserId: string) => {
     router.push(`/line-chat?user=${lineUserId}`);
+  };
+
+  const handleShowOrderHistory = async (customer: CRMCustomer) => {
+    setOrderHistoryModal({ show: true, customer, orders: [], loading: true });
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('order_number, order_date, total_amount, order_status')
+        .eq('customer_id', customer.id)
+        .neq('order_status', 'cancelled')
+        .order('order_date', { ascending: false });
+
+      setOrderHistoryModal(prev => ({ ...prev, orders: orders || [], loading: false }));
+    } catch {
+      setOrderHistoryModal(prev => ({ ...prev, loading: false }));
+    }
   };
 
   const handlePageChange = (newPage: number) => {
@@ -529,7 +564,10 @@ export default function CRMFollowUpPage() {
 
                       {/* Order Frequency */}
                       <td className="px-6 py-4 text-center">
-                        <FrequencyBadge frequency={customer.avg_order_frequency} />
+                        <FrequencyBadge
+                          frequency={customer.avg_order_frequency}
+                          onClick={() => customer.total_orders >= 2 && handleShowOrderHistory(customer)}
+                        />
                       </td>
 
                       {/* Total Orders */}
@@ -651,6 +689,100 @@ export default function CRMFollowUpPage() {
           )}
         </div>
       </div>
+
+      {/* Order History Modal */}
+      {orderHistoryModal.show && orderHistoryModal.customer && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setOrderHistoryModal({ show: false, customer: null, orders: [], loading: false })}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <div>
+                <h3 className="font-semibold text-gray-900">{orderHistoryModal.customer.name}</h3>
+                <p className="text-sm text-gray-500">
+                  ประวัติการสั่งซื้อ {orderHistoryModal.orders.length > 0 ? `(${orderHistoryModal.orders.length} รายการ)` : ''}
+                  {orderHistoryModal.customer.avg_order_frequency && (
+                    <span className="ml-2 text-blue-600 font-medium">เฉลี่ยทุก ~{orderHistoryModal.customer.avg_order_frequency} วัน</span>
+                  )}
+                </p>
+              </div>
+              <button
+                onClick={() => setOrderHistoryModal({ show: false, customer: null, orders: [], loading: false })}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="overflow-y-auto max-h-[60vh] px-5 py-4">
+              {orderHistoryModal.loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 text-[#E9B308] animate-spin" />
+                </div>
+              ) : orderHistoryModal.orders.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <FileText className="w-10 h-10 mx-auto mb-2" />
+                  <p className="text-sm">ไม่มีประวัติการสั่งซื้อ</p>
+                </div>
+              ) : (
+                <div className="space-y-0">
+                  {orderHistoryModal.orders.map((order, idx) => {
+                    const nextOrder = orderHistoryModal.orders[idx + 1];
+                    let gap: number | null = null;
+                    if (nextOrder) {
+                      const d1 = new Date(order.order_date).getTime();
+                      const d2 = new Date(nextOrder.order_date).getTime();
+                      gap = Math.round((d1 - d2) / (1000 * 60 * 60 * 24));
+                    }
+
+                    const statusConfig: Record<string, { label: string; color: string }> = {
+                      new: { label: 'ใหม่', color: 'bg-blue-100 text-blue-700' },
+                      shipping: { label: 'กำลังส่ง', color: 'bg-yellow-100 text-yellow-700' },
+                      completed: { label: 'สำเร็จ', color: 'bg-green-100 text-green-700' },
+                    };
+                    const status = statusConfig[order.order_status] || { label: order.order_status, color: 'bg-gray-100 text-gray-700' };
+
+                    return (
+                      <div key={idx}>
+                        {/* Order row */}
+                        <div className="flex items-center gap-3 py-2.5">
+                          <div className="w-6 text-center text-xs text-gray-400 font-medium">{idx + 1}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-900">{order.order_number}</span>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${status.color}`}>{status.label}</span>
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {new Date(order.order_date).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}
+                            </div>
+                          </div>
+                          <div className="text-sm font-medium text-gray-900 whitespace-nowrap">
+                            ฿{order.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 0 })}
+                          </div>
+                        </div>
+
+                        {/* Gap indicator */}
+                        {gap !== null && (
+                          <div className="flex items-center gap-3 py-1">
+                            <div className="w-6" />
+                            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                              <div className="w-px h-3 bg-gray-200 ml-1" />
+                              <ArrowRight className="w-3 h-3" />
+                              <span className={gap > (orderHistoryModal.customer?.avg_order_frequency || 999) ? 'text-orange-500 font-medium' : ''}>
+                                {gap} วัน
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

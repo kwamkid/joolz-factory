@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
+import DateRangePicker from '@/components/ui/DateRangePicker';
+import { DateValueType } from 'react-tailwindcss-datepicker';
 import {
   DollarSign,
   Search,
@@ -16,7 +18,6 @@ import {
   ChevronRight,
   ChevronLeft,
   ChevronDown,
-  Filter,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -35,6 +36,7 @@ interface PendingOrder {
   deliveryDate: string | null;
   totalAmount: number;
   orderStatus: string;
+  paymentStatus: string;
   daysAgo: number;
 }
 
@@ -160,6 +162,21 @@ function OrderStatusBadge({ status }: { status: string }) {
   );
 }
 
+// Payment status badge
+function PaymentStatusBadge({ status }: { status: string }) {
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    pending: { label: 'รอชำระ', color: 'bg-orange-100 text-orange-700' },
+    verifying: { label: 'รอตรวจสอบ', color: 'bg-purple-100 text-purple-700' },
+  };
+  const config = statusConfig[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
+
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${config.color}`}>
+      {config.label}
+    </span>
+  );
+}
+
 export default function PaymentFollowupPage() {
   const router = useRouter();
   const { userProfile, loading: authLoading } = useAuth();
@@ -175,6 +192,7 @@ export default function PaymentFollowupPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterDays, setFilterDays] = useState<string>('all');
+  const [dateRange, setDateRange] = useState<DateValueType>({ startDate: null, endDate: null });
   const [sortBy, setSortBy] = useState<string>('days_overdue');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
@@ -194,7 +212,7 @@ export default function PaymentFollowupPage() {
     if (!authLoading && userProfile) {
       fetchCustomers();
     }
-  }, [authLoading, userProfile, debouncedSearch, filterDays, sortBy, sortOrder, currentPage, rowsPerPage]);
+  }, [authLoading, userProfile, debouncedSearch, filterDays, dateRange, sortBy, sortOrder, currentPage, rowsPerPage]);
 
   const fetchCustomers = async () => {
     try {
@@ -219,6 +237,14 @@ export default function PaymentFollowupPage() {
         if (maxStr !== 'null') {
           params.set('max_days', maxStr);
         }
+      }
+
+      // Apply date range filter
+      if (dateRange?.startDate) {
+        params.set('date_from', typeof dateRange.startDate === 'string' ? dateRange.startDate : dateRange.startDate.toISOString().split('T')[0]);
+      }
+      if (dateRange?.endDate) {
+        params.set('date_to', typeof dateRange.endDate === 'string' ? dateRange.endDate : dateRange.endDate.toISOString().split('T')[0]);
       }
 
       const response = await fetch(`/api/crm/payment-followup?${params.toString()}`, {
@@ -414,9 +440,19 @@ export default function PaymentFollowupPage() {
               />
             </div>
 
+            {/* Date range filter */}
+            <div className="w-full md:w-64">
+              <DateRangePicker
+                value={dateRange}
+                onChange={(val) => { setDateRange(val); setCurrentPage(1); }}
+                placeholder="ช่วงวันที่สั่งซื้อ"
+                showShortcuts={true}
+                showFooter={true}
+              />
+            </div>
+
             {/* Filter by days */}
             <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-gray-400" />
               <select
                 value={filterDays}
                 onChange={(e) => { setFilterDays(e.target.value); setCurrentPage(1); }}
@@ -614,7 +650,10 @@ export default function PaymentFollowupPage() {
                             <span className="text-sm text-gray-600">{order.daysAgo} วัน</span>
                           </td>
                           <td className="px-6 py-3 text-center">
-                            <OrderStatusBadge status={order.orderStatus} />
+                            <div className="flex items-center justify-center gap-1">
+                              <OrderStatusBadge status={order.orderStatus} />
+                              <PaymentStatusBadge status={order.paymentStatus} />
+                            </div>
                           </td>
                           <td className="px-6 py-3">
                             <div className="text-sm text-gray-600">
