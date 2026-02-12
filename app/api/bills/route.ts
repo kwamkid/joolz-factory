@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
         customer:customers (
           name, contact_person, phone, email,
           address, district, amphoe, province, postal_code,
-          tax_company_name, tax_id, tax_branch
+          tax_company_name, tax_id, tax_branch,
+          customer_type_new
         )
       `)
       .eq('id', orderId)
@@ -188,12 +189,60 @@ export async function GET(request: NextRequest) {
 
     const paymentRecord = paymentRecords && paymentRecords.length > 0 ? paymentRecords[0] : null;
 
+    // Fetch active payment channels for bill_online
+    const { data: paymentChannels } = await supabaseAdmin
+      .from('payment_channels')
+      .select('id, type, name, is_active, config, sort_order')
+      .eq('channel_group', 'bill_online')
+      .eq('is_active', true)
+      .order('type')
+      .order('sort_order', { ascending: true });
+
+    // Sanitize payment channels — strip sensitive data before sending to public page
+    const customerData = order.customer as unknown as Record<string, unknown> | null;
+    const customerType = (customerData?.customer_type_new as string) || 'retail';
+    const orderAmount = order.total_amount as number;
+
+    const sanitizedChannels = (paymentChannels || []).map(ch => {
+      const cfg = ch.config as Record<string, unknown>;
+
+      if (ch.type === 'payment_gateway') {
+        const channels = (cfg.channels || {}) as Record<string, Record<string, unknown>>;
+        const availableChannels = Object.entries(channels)
+          .filter(([, conf]) => {
+            if (!conf.enabled) return false;
+            if (conf.min_amount && orderAmount < (conf.min_amount as number)) return false;
+            if (conf.customer_types && Array.isArray(conf.customer_types) && conf.customer_types.length > 0) {
+              if (!conf.customer_types.includes(customerType)) return false;
+            }
+            return true;
+          })
+          .map(([code, conf]) => ({ code, fee_payer: (conf.fee_payer as string) || 'merchant' }));
+
+        if (availableChannels.length === 0) return null;
+        return { type: ch.type, name: ch.name, available_channels: availableChannels };
+      }
+
+      if (ch.type === 'bank_transfer') {
+        return {
+          type: ch.type,
+          name: ch.name,
+          config: { bank_code: cfg.bank_code, account_number: cfg.account_number, account_name: cfg.account_name },
+        };
+      }
+
+      // cash
+      return { type: ch.type, name: ch.name, config: { description: cfg.description } };
+    }).filter(Boolean);
+
     return NextResponse.json({
       bill: {
         ...order,
         items: flatItems,
         branches,
         payment_record: paymentRecord,
+        payment_channels: sanitizedChannels,
+        customer_type: customerType,
         shipping_addresses: branches.map(b => ({
           address_name: b.address_name,
           contact_person: b.contact_person,
@@ -280,8 +329,8 @@ export async function POST(request: NextRequest) {
         order_id: orderId,
         payment_method: paymentMethod,
         amount: order.total_amount,
-        transfer_date: paymentMethod === 'transfer' ? transferDate : null,
-        transfer_time: paymentMethod === 'transfer' ? transferTime : null,
+        transfer_date: (paymentMethod === 'transfer' || paymentMethod === 'bank_transfer') ? transferDate : null,
+        transfer_time: (paymentMethod === 'transfer' || paymentMethod === 'bank_transfer') ? transferTime : null,
         slip_image_url: slipImageUrl,
         status: 'pending',
         notes: notes || null,

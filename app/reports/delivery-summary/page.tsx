@@ -104,6 +104,7 @@ interface ProductSummary {
   bottleSize: string | null;
   totalQuantity: number;
   image: string | null;
+  barcode: string | null;
 }
 
 interface ReportData {
@@ -704,6 +705,25 @@ export default function DeliverySummaryPage() {
     URL.revokeObjectURL(link.href);
   };
 
+  // Generate barcode as data URL using JsBarcode
+  const generateBarcodeDataUrl = (barcodeValue: string): string | null => {
+    try {
+      const JsBarcode = require('jsbarcode');
+      const canvas = document.createElement('canvas');
+      JsBarcode(canvas, barcodeValue, {
+        format: 'CODE128',
+        width: 1.5,
+        height: 40,
+        displayValue: true,
+        fontSize: 10,
+        margin: 2,
+      });
+      return canvas.toDataURL('image/png');
+    } catch {
+      return null;
+    }
+  };
+
   // PDF export for packing list — pdfmake with Thai font (Sarabun)
   const handleExportPackingPdf = async () => {
     if (!reportData || reportData.productSummary.length === 0) return;
@@ -747,7 +767,39 @@ export default function DeliverySummaryPage() {
       });
       const summaryText = `${reportData.productSummary.length} รายการ / ${reportData.totals.totalBottles.toLocaleString()} ขวด`;
 
-      // Load all product images as base64 data URLs
+      // Check if any product has a barcode
+      const hasAnyBarcode = reportData.productSummary.some(p => p.barcode);
+
+      // Helper: draw image with rounded corners on canvas
+      const roundImage = (dataUrl: string, size: number, radius: number): Promise<string> => {
+        return new Promise((resolve) => {
+          const img = new window.Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d')!;
+            ctx.beginPath();
+            ctx.moveTo(radius, 0);
+            ctx.lineTo(size - radius, 0);
+            ctx.quadraticCurveTo(size, 0, size, radius);
+            ctx.lineTo(size, size - radius);
+            ctx.quadraticCurveTo(size, size, size - radius, size);
+            ctx.lineTo(radius, size);
+            ctx.quadraticCurveTo(0, size, 0, size - radius);
+            ctx.lineTo(0, radius);
+            ctx.quadraticCurveTo(0, 0, radius, 0);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(img, 0, 0, size, size);
+            resolve(canvas.toDataURL('image/png'));
+          };
+          img.onerror = () => resolve(dataUrl);
+          img.src = dataUrl;
+        });
+      };
+
+      // Load all product images as base64 data URLs (with rounded corners)
       const imageDataUrls = await Promise.all(
         reportData.productSummary.map(async (product) => {
           if (!product.image) return null;
@@ -756,55 +808,90 @@ export default function DeliverySummaryPage() {
             const response = await fetch(imgUrl);
             if (!response.ok) return null;
             const blob = await response.blob();
-            return new Promise<string | null>((resolve) => {
+            const rawDataUrl = await new Promise<string | null>((resolve) => {
               const reader = new FileReader();
               reader.onloadend = () => resolve(reader.result as string);
               reader.onerror = () => resolve(null);
               reader.readAsDataURL(blob);
             });
+            if (!rawDataUrl) return null;
+            return await roundImage(rawDataUrl, 200, 24);
           } catch {
             return null;
           }
         })
       );
 
-      // Build table body
-      const tableHeader = [
-        { text: '#', style: 'tableHeader', alignment: 'center' as const },
-        { text: 'รูป', style: 'tableHeader', alignment: 'center' as const },
-        { text: 'สินค้า', style: 'tableHeader' },
-        { text: 'จำนวน', style: 'tableHeader', alignment: 'center' as const },
-      ];
+      // Generate barcode images
+      const barcodeDataUrls = reportData.productSummary.map(product => {
+        if (!product.barcode) return null;
+        return generateBarcodeDataUrl(product.barcode);
+      });
+
+      // Build table body — columns vary based on barcode availability
+      const tableHeader = hasAnyBarcode
+        ? [
+            { text: '#', style: 'tableHeader', alignment: 'center' as const },
+            { text: 'รูป', style: 'tableHeader', alignment: 'center' as const },
+            { text: 'สินค้า', style: 'tableHeader' },
+            { text: 'บาร์โค้ด', style: 'tableHeader', alignment: 'center' as const },
+            { text: 'จำนวน', style: 'tableHeader', alignment: 'center' as const },
+          ]
+        : [
+            { text: '#', style: 'tableHeader', alignment: 'center' as const },
+            { text: 'รูป', style: 'tableHeader', alignment: 'center' as const },
+            { text: 'สินค้า', style: 'tableHeader' },
+            { text: 'จำนวน', style: 'tableHeader', alignment: 'center' as const },
+          ];
 
       const tableBody: any[][] = [tableHeader];
 
       reportData.productSummary.forEach((product, index) => {
         const fullName = product.productName + (product.bottleSize ? ` - ${product.bottleSize}` : '');
         const imgDataUrl = imageDataUrls[index];
+        const barcodeDataUrl = barcodeDataUrls[index];
 
         const imageCell = imgDataUrl
-          ? { image: imgDataUrl, width: 42, height: 42, alignment: 'center' as const, margin: [0, 2, 0, 2] as [number, number, number, number] }
-          : { text: '-', alignment: 'center' as const, color: '#aaaaaa', fontSize: 8, margin: [0, 14, 0, 14] as [number, number, number, number] };
+          ? { image: imgDataUrl, width: 84, height: 84, alignment: 'center' as const, margin: [0, 2, 0, 2] as [number, number, number, number] }
+          : { text: '-', alignment: 'center' as const, color: '#aaaaaa', fontSize: 8, margin: [0, 36, 0, 36] as [number, number, number, number] };
 
-        tableBody.push([
-          { text: `${index + 1}`, alignment: 'center' as const, color: '#999999', fontSize: 9, margin: [0, 14, 0, 0] as [number, number, number, number] },
+        const row: any[] = [
+          { text: `${index + 1}`, alignment: 'center' as const, color: '#999999', fontSize: 9, margin: [0, 34, 0, 0] as [number, number, number, number] },
           imageCell,
           {
             stack: [
               { text: fullName, bold: true, fontSize: 9, color: '#1e1e1e' },
               { text: product.productCode || '-', fontSize: 7, color: '#8c8c8c', margin: [0, 2, 0, 0] as [number, number, number, number] },
             ],
-            margin: [0, 8, 0, 4] as [number, number, number, number],
+            margin: [0, 28, 0, 4] as [number, number, number, number],
           },
-          {
-            stack: [
-              { text: `${product.totalQuantity}`, bold: true, fontSize: 14, color: '#00231F', alignment: 'center' as const },
-              { text: 'ขวด', fontSize: 7, color: '#787878', alignment: 'center' as const, margin: [0, 1, 0, 0] as [number, number, number, number] },
-            ],
-            margin: [0, 10, 0, 0] as [number, number, number, number],
-          },
-        ]);
+        ];
+
+        if (hasAnyBarcode) {
+          const barcodeCell = barcodeDataUrl
+            ? { image: barcodeDataUrl, width: 100, height: 45, alignment: 'center' as const, margin: [0, 20, 0, 2] as [number, number, number, number] }
+            : { text: '-', alignment: 'center' as const, color: '#cccccc', fontSize: 8, margin: [0, 36, 0, 36] as [number, number, number, number] };
+          row.push(barcodeCell);
+        }
+
+        row.push({
+          stack: [
+            { text: `${product.totalQuantity}`, bold: true, fontSize: 14, color: '#00231F', alignment: 'center' as const },
+            { text: 'ขวด', fontSize: 7, color: '#787878', alignment: 'center' as const, margin: [0, 1, 0, 0] as [number, number, number, number] },
+          ],
+          margin: [0, 30, 0, 0] as [number, number, number, number],
+        });
+
+        tableBody.push(row);
       });
+
+      // Table widths depend on barcode column
+      const tableWidths = hasAnyBarcode
+        ? [22, 92, '*', 110, 50]
+        : [22, 92, '*', 50];
+
+      // Footer colSpan depends on columns
+      const footerColSpan = hasAnyBarcode ? 4 : 3;
 
       // pdfmake document definition
       const docDefinition: any = {
@@ -832,7 +919,7 @@ export default function DeliverySummaryPage() {
           {
             table: {
               headerRows: 1,
-              widths: [22, 50, '*', 50],
+              widths: tableWidths,
               body: tableBody,
             },
             layout: {

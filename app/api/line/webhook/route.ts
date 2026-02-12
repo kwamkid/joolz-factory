@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import sharp from 'sharp';
 
 // Create Supabase Admin client (service role)
 const supabaseAdmin = createClient(
@@ -208,6 +209,15 @@ async function handleMessageEvent(contactId: string, event: LineEvent, isGroup: 
     }
   } else if (message.type === 'video') {
     messageContent = '[วิดีโอ]';
+    // Store video in Supabase Storage
+    if (message.contentProvider?.type === 'line') {
+      const videoUrl = await fetchAndStoreLineContent(message.id, 'video');
+      if (videoUrl) {
+        metadata.videoUrl = videoUrl;
+      }
+    } else if (message.contentProvider?.originalContentUrl) {
+      metadata.videoUrl = message.contentProvider.originalContentUrl;
+    }
     if (message.contentProvider?.previewImageUrl) {
       metadata.previewUrl = message.contentProvider.previewImageUrl;
     }
@@ -447,10 +457,11 @@ async function fetchAndStoreLineContent(messageId: string, type: 'image' | 'vide
     }
 
     const contentType = response.headers.get('content-type') || 'application/octet-stream';
-    const buffer = await response.arrayBuffer();
+    let buffer: Buffer<ArrayBuffer> = Buffer.from(await response.arrayBuffer()) as Buffer<ArrayBuffer>;
 
     // Determine file extension
     let ext = 'bin';
+    let finalContentType = contentType;
     if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = 'jpg';
     else if (contentType.includes('png')) ext = 'png';
     else if (contentType.includes('gif')) ext = 'gif';
@@ -458,13 +469,33 @@ async function fetchAndStoreLineContent(messageId: string, type: 'image' | 'vide
     else if (contentType.includes('mp4')) ext = 'mp4';
     else if (contentType.includes('m4a')) ext = 'm4a';
 
+    // Compress images over 500KB
+    const MAX_IMAGE_SIZE = 500 * 1024;
+    if (type === 'image' && buffer.length > MAX_IMAGE_SIZE) {
+      try {
+        let img = sharp(buffer).resize(1920, 1920, { fit: 'inside', withoutEnlargement: true });
+        // Try quality levels until under limit
+        for (const quality of [80, 60, 40]) {
+          const compressed = await img.jpeg({ quality }).toBuffer();
+          if (compressed.length <= MAX_IMAGE_SIZE || quality === 40) {
+            buffer = compressed as Buffer<ArrayBuffer>;
+            break;
+          }
+        }
+        ext = 'jpg';
+        finalContentType = 'image/jpeg';
+      } catch (compressError) {
+        console.error('Image compression failed, using original:', compressError);
+      }
+    }
+
     const fileName = `line-${type}/${messageId}.${ext}`;
 
     // Upload to Supabase Storage
     const { error } = await supabaseAdmin.storage
       .from('chat-media')
       .upload(fileName, buffer, {
-        contentType,
+        contentType: finalContentType,
         upsert: true
       });
 

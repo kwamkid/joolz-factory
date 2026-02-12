@@ -57,6 +57,17 @@ export async function GET(request: NextRequest) {
     // Order days range filter
     const orderDaysMin = searchParams.get('order_days_min');
     const orderDaysMax = searchParams.get('order_days_max');
+    // Pagination
+    const limit = parseInt(searchParams.get('limit') || '30', 10);
+    const offset = parseInt(searchParams.get('offset') || '0', 10);
+    // When orderDaysMin is active, we can't paginate at DB level (post-fetch filtering)
+    const canPaginateAtDb = !orderDaysMin;
+
+    // Count query (same filters, no pagination) for total
+    let countQuery = supabaseAdmin
+      .from('line_contacts')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'active');
 
     let query = supabaseAdmin
       .from('line_contacts')
@@ -89,21 +100,33 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       query = query.ilike('display_name', `%${search}%`);
+      countQuery = countQuery.ilike('display_name', `%${search}%`);
     }
 
     if (unreadOnly) {
       query = query.gt('unread_count', 0);
+      countQuery = countQuery.gt('unread_count', 0);
     }
 
     if (linkedOnly) {
       query = query.not('customer_id', 'is', null);
+      countQuery = countQuery.not('customer_id', 'is', null);
     }
 
     if (unlinkedOnly) {
       query = query.is('customer_id', null);
+      countQuery = countQuery.is('customer_id', null);
     }
 
-    const { data: contacts, error } = await query;
+    // Apply DB-level pagination only when no post-fetch filtering needed
+    if (canPaginateAtDb) {
+      query = query.range(offset, offset + limit - 1);
+    }
+
+    const [{ data: contacts, error }, { count: totalCount }] = await Promise.all([
+      query,
+      countQuery
+    ]);
 
     // If filtering by last order days, we need to filter after fetching
     let filteredContacts = contacts || [];
@@ -118,16 +141,16 @@ export async function GET(request: NextRequest) {
         // Get all orders for each customer (for avg frequency calculation)
         const { data: allOrders } = await supabaseAdmin
           .from('orders')
-          .select('customer_id, order_date')
+          .select('customer_id, order_date, created_at')
           .in('customer_id', customerIds)
           .neq('order_status', 'cancelled')
           .order('order_date', { ascending: false });
 
-        // Build map of customer_id -> { lastOrderDate, orderDates[] }
-        const customerOrderMap = new Map<string, { lastOrderDate: string; orderDates: string[] }>();
+        // Build map of customer_id -> { lastOrderDate, lastOrderCreatedAt, orderDates[] }
+        const customerOrderMap = new Map<string, { lastOrderDate: string; lastOrderCreatedAt: string | null; orderDates: string[] }>();
         (allOrders || []).forEach(order => {
           if (!customerOrderMap.has(order.customer_id)) {
-            customerOrderMap.set(order.customer_id, { lastOrderDate: order.order_date, orderDates: [] });
+            customerOrderMap.set(order.customer_id, { lastOrderDate: order.order_date, lastOrderCreatedAt: order.created_at, orderDates: [] });
           }
           customerOrderMap.get(order.customer_id)!.orderDates.push(order.order_date);
         });
@@ -189,6 +212,7 @@ export async function GET(request: NextRequest) {
           return {
             ...c,
             last_order_date: orderData?.lastOrderDate || null,
+            last_order_created_at: orderData?.lastOrderCreatedAt || null,
             avg_order_frequency: avgOrderFrequency
           };
         });
@@ -204,16 +228,16 @@ export async function GET(request: NextRequest) {
       if (customerIds.length > 0) {
         const { data: lastOrders } = await supabaseAdmin
           .from('orders')
-          .select('customer_id, order_date')
+          .select('customer_id, order_date, created_at')
           .in('customer_id', customerIds)
           .neq('order_status', 'cancelled')
           .order('order_date', { ascending: false });
 
-        // Build map of customer_id -> { lastOrderDate, orderDates[] }
-        const customerOrderMap = new Map<string, { lastOrderDate: string; orderDates: string[] }>();
+        // Build map of customer_id -> { lastOrderDate, lastOrderCreatedAt, orderDates[] }
+        const customerOrderMap = new Map<string, { lastOrderDate: string; lastOrderCreatedAt: string | null; orderDates: string[] }>();
         (lastOrders || []).forEach(order => {
           if (!customerOrderMap.has(order.customer_id)) {
-            customerOrderMap.set(order.customer_id, { lastOrderDate: order.order_date, orderDates: [] });
+            customerOrderMap.set(order.customer_id, { lastOrderDate: order.order_date, lastOrderCreatedAt: order.created_at, orderDates: [] });
           }
           customerOrderMap.get(order.customer_id)!.orderDates.push(order.order_date);
         });
@@ -238,6 +262,7 @@ export async function GET(request: NextRequest) {
           return {
             ...c,
             last_order_date: orderData?.lastOrderDate || null,
+            last_order_created_at: orderData?.lastOrderCreatedAt || null,
             avg_order_frequency: avgOrderFrequency
           };
         });
@@ -251,15 +276,15 @@ export async function GET(request: NextRequest) {
       if (customerIds.length > 0) {
         const { data: orders } = await supabaseAdmin
           .from('orders')
-          .select('customer_id, order_date')
+          .select('customer_id, order_date, created_at')
           .in('customer_id', customerIds)
           .neq('order_status', 'cancelled')
           .order('order_date', { ascending: false });
 
-        const customerOrderMap = new Map<string, { lastOrderDate: string; orderDates: string[] }>();
+        const customerOrderMap = new Map<string, { lastOrderDate: string; lastOrderCreatedAt: string | null; orderDates: string[] }>();
         (orders || []).forEach(order => {
           if (!customerOrderMap.has(order.customer_id)) {
-            customerOrderMap.set(order.customer_id, { lastOrderDate: order.order_date, orderDates: [] });
+            customerOrderMap.set(order.customer_id, { lastOrderDate: order.order_date, lastOrderCreatedAt: order.created_at, orderDates: [] });
           }
           customerOrderMap.get(order.customer_id)!.orderDates.push(order.order_date);
         });
@@ -283,6 +308,7 @@ export async function GET(request: NextRequest) {
           return {
             ...c,
             last_order_date: orderData?.lastOrderDate || null,
+            last_order_created_at: orderData?.lastOrderCreatedAt || null,
             avg_order_frequency: avgOrderFrequency
           };
         });
@@ -296,31 +322,40 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // For post-fetch filtered results, apply pagination after filtering
+    let totalFiltered = filteredContacts.length;
+    if (!canPaginateAtDb) {
+      totalFiltered = filteredContacts.length;
+      filteredContacts = filteredContacts.slice(offset, offset + limit);
+    }
+
     // Get last message for each contact
     const contactIds = filteredContacts.map(c => c.id);
 
-    // Get latest message per contact
-    const { data: lastMessages } = await supabaseAdmin
-      .from('line_messages')
-      .select('line_contact_id, content, message_type')
-      .in('line_contact_id', contactIds)
-      .order('created_at', { ascending: false });
+    // Get latest message per contact (only for current page)
+    let lastMessageMap = new Map<string, string>();
+    if (contactIds.length > 0) {
+      const { data: lastMessages } = await supabaseAdmin
+        .from('line_messages')
+        .select('line_contact_id, content, message_type')
+        .in('line_contact_id', contactIds)
+        .order('created_at', { ascending: false });
 
-    // Build a map of contact_id -> last message
-    const lastMessageMap = new Map<string, string>();
-    (lastMessages || []).forEach(msg => {
-      if (!lastMessageMap.has(msg.line_contact_id)) {
-        // Format last message preview
-        let preview = msg.content;
-        if (msg.message_type === 'sticker') preview = '🎭 สติกเกอร์';
-        else if (msg.message_type === 'image') preview = '🖼️ รูปภาพ';
-        else if (msg.message_type === 'video') preview = '🎬 วิดีโอ';
-        else if (msg.message_type === 'audio') preview = '🎵 เสียง';
-        else if (msg.message_type === 'location') preview = '📍 ตำแหน่ง';
-        else if (msg.message_type === 'file') preview = '📎 ไฟล์';
-        lastMessageMap.set(msg.line_contact_id, preview);
-      }
-    });
+      // Build a map of contact_id -> last message
+      (lastMessages || []).forEach(msg => {
+        if (!lastMessageMap.has(msg.line_contact_id)) {
+          // Format last message preview
+          let preview = msg.content;
+          if (msg.message_type === 'sticker') preview = '🎭 สติกเกอร์';
+          else if (msg.message_type === 'image') preview = '🖼️ รูปภาพ';
+          else if (msg.message_type === 'video') preview = '🎬 วิดีโอ';
+          else if (msg.message_type === 'audio') preview = '🎵 เสียง';
+          else if (msg.message_type === 'location') preview = '📍 ตำแหน่ง';
+          else if (msg.message_type === 'file') preview = '📎 ไฟล์';
+          lastMessageMap.set(msg.line_contact_id, preview);
+        }
+      });
+    }
 
     // Add last_message to contacts
     const contactsWithLastMessage = filteredContacts.map(contact => ({
@@ -331,11 +366,18 @@ export async function GET(request: NextRequest) {
     // Get unread counts summary
     const totalUnread = filteredContacts.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
+    // Determine total and hasMore
+    const effectiveTotal = canPaginateAtDb ? (totalCount || 0) : totalFiltered;
+    const hasMore = offset + limit < effectiveTotal;
+
     return NextResponse.json({
       contacts: contactsWithLastMessage,
       summary: {
-        total: filteredContacts.length,
-        totalUnread
+        total: effectiveTotal,
+        totalUnread,
+        hasMore,
+        offset,
+        limit
       }
     });
   } catch (error) {

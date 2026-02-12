@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
@@ -32,7 +32,10 @@ import {
   Clock,
   Bell,
   UserPlus,
-  FileText
+  FileText,
+  Download,
+  Play,
+  Images
 } from 'lucide-react';
 import Image from 'next/image';
 import OrderForm from '@/components/orders/OrderForm';
@@ -70,6 +73,7 @@ interface LineContact {
   last_message_at?: string;
   last_message?: string; // Preview of last message
   last_order_date?: string; // Last order date for linked customers
+  last_order_created_at?: string; // Last order created_at timestamp (has time)
   avg_order_frequency?: number | null; // Average days between orders
 }
 
@@ -97,6 +101,8 @@ interface LineMessage {
     address?: string;
     lineMessageId?: string; // For LINE content proxy
     imageUrl?: string; // Direct URL or from storage
+    videoUrl?: string; // Video URL from storage
+    previewUrl?: string; // Video preview image
     contentProvider?: {
       originalContentUrl?: string;
       previewImageUrl?: string;
@@ -129,6 +135,7 @@ function LineChatPageContent() {
   const { showToast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messagesTopRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Contacts list state
@@ -136,6 +143,9 @@ function LineChatPageContent() {
   const [loadingContacts, setLoadingContacts] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [totalUnread, setTotalUnread] = useState(0);
+  const [hasMoreContacts, setHasMoreContacts] = useState(false);
+  const [loadingMoreContacts, setLoadingMoreContacts] = useState(false);
+  const contactsEndRef = useRef<HTMLDivElement>(null);
 
   // Selected contact state
   const [selectedContact, setSelectedContact] = useState<LineContact | null>(null);
@@ -162,6 +172,10 @@ function LineChatPageContent() {
 
   // Scroll to bottom button
   const [showScrollButton, setShowScrollButton] = useState(false);
+
+  // Lightbox for images/videos
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [showGallery, setShowGallery] = useState(false);
 
   // Right panel (split view) - desktop only
   const [rightPanel, setRightPanel] = useState<'order' | 'history' | 'profile' | 'create-customer' | 'edit-customer' | 'order-detail' | null>(null);
@@ -198,6 +212,27 @@ function LineChatPageContent() {
 
   // Check if any filter is active
   const hasActiveFilter = filterLinked !== 'all' || filterUnread || filterOrderDaysRange !== null;
+
+  // Build media list from messages for lightbox navigation
+  const mediaList = useMemo(() => {
+    return messages
+      .filter(m =>
+        (m.message_type === 'image' && m.raw_message?.imageUrl) ||
+        (m.message_type === 'video' && m.raw_message?.videoUrl)
+      )
+      .map(m => ({
+        url: m.message_type === 'video' ? m.raw_message!.videoUrl! : m.raw_message!.imageUrl!,
+        type: (m.message_type === 'video' ? 'video' : 'image') as 'image' | 'video',
+        timestamp: m.created_at
+      }));
+  }, [messages]);
+
+  const openLightbox = useCallback((url: string) => {
+    const idx = mediaList.findIndex(m => m.url === url);
+    setLightboxIndex(idx >= 0 ? idx : null);
+  }, [mediaList]);
+
+  const lightboxMedia = lightboxIndex !== null ? mediaList[lightboxIndex] : null;
 
   // Fetch CRM settings (day ranges)
   useEffect(() => {
@@ -249,6 +284,7 @@ function LineChatPageContent() {
     if (selectedContact) {
       fetchMessages(selectedContact.id);
       setMobileView('chat'); // Switch to chat view on mobile
+      setRightPanel(null); // Close any open panel (order history, order form, etc.)
       // Focus input when contact selected
       setTimeout(() => inputRef.current?.focus(), 100);
     }
@@ -275,6 +311,17 @@ function LineChatPageContent() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Sync rightPanel → mobileView when resizing from desktop to mobile
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768 && rightPanel) {
+        setMobileView(rightPanel);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [rightPanel]);
+
   // Close filter popover when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -287,6 +334,36 @@ function LineChatPageContent() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showFilterPopover]);
+
+  // IntersectionObserver for infinite scroll on contacts list
+  useEffect(() => {
+    if (!contactsEndRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreContacts && !loadingMoreContacts && !loadingContacts) {
+          fetchContacts(true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(contactsEndRef.current);
+    return () => observer.disconnect();
+  }, [hasMoreContacts, loadingMoreContacts, loadingContacts, contacts.length]);
+
+  // IntersectionObserver for infinite scroll on messages (scroll up to load older)
+  useEffect(() => {
+    if (!messagesTopRef.current || !selectedContact) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreMessages && !loadingMore && !loadingMessages) {
+          fetchMessages(selectedContact.id, true);
+        }
+      },
+      { threshold: 0.1, root: messagesContainerRef.current }
+    );
+    observer.observe(messagesTopRef.current);
+    return () => observer.disconnect();
+  }, [hasMoreMessages, loadingMore, loadingMessages, selectedContact?.id, messages.length]);
 
   // Supabase Realtime subscription for new messages
   useEffect(() => {
@@ -361,8 +438,11 @@ function LineChatPageContent() {
     };
   }, [selectedContact]);
 
-  const fetchContacts = async () => {
+  const fetchContacts = async (loadMore = false) => {
     try {
+      if (loadMore) {
+        setLoadingMoreContacts(true);
+      }
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session) return;
@@ -378,6 +458,8 @@ function LineChatPageContent() {
           params.set('order_days_max', filterOrderDaysRange.max.toString());
         }
       }
+      params.set('limit', '30');
+      params.set('offset', loadMore ? contacts.length.toString() : '0');
 
       const response = await fetch(`/api/line/contacts?${params.toString()}`, {
         headers: {
@@ -397,15 +479,27 @@ function LineChatPageContent() {
         );
       }
 
-      setContacts(contactsList);
+      if (loadMore) {
+        setContacts(prev => [...prev, ...contactsList]);
+      } else {
+        setContacts(contactsList);
+      }
 
-      // Calculate total unread, excluding selected contact
-      const calculatedUnread = contactsList.reduce((sum: number, c: LineContact) => sum + c.unread_count, 0);
-      setTotalUnread(calculatedUnread);
+      setHasMoreContacts(result.summary?.hasMore || false);
+
+      // Calculate total unread
+      if (loadMore) {
+        // For load more, recalculate from all contacts
+        setTotalUnread(prev => prev + contactsList.reduce((sum: number, c: LineContact) => sum + c.unread_count, 0));
+      } else {
+        const calculatedUnread = contactsList.reduce((sum: number, c: LineContact) => sum + c.unread_count, 0);
+        setTotalUnread(calculatedUnread);
+      }
     } catch (error) {
       console.error('Error fetching contacts:', error);
     } finally {
       setLoadingContacts(false);
+      setLoadingMoreContacts(false);
     }
   };
 
@@ -434,8 +528,20 @@ function LineChatPageContent() {
       const newMessages = result.messages || [];
 
       if (loadMore) {
+        // Save scroll position before prepending
+        const container = messagesContainerRef.current;
+        const prevScrollHeight = container?.scrollHeight || 0;
+
         // Prepend older messages
         setMessages(prev => [...newMessages, ...prev]);
+
+        // Restore scroll position after DOM update
+        requestAnimationFrame(() => {
+          if (container) {
+            const newScrollHeight = container.scrollHeight;
+            container.scrollTop = newScrollHeight - prevScrollHeight;
+          }
+        });
       } else {
         setMessages(newMessages);
       }
@@ -590,6 +696,62 @@ function LineChatPageContent() {
     })();
   };
 
+  // Compress image on client side (max 500KB)
+  const compressImage = (file: File, maxSizeKB = 500): Promise<Blob> => {
+    return new Promise((resolve) => {
+      if (file.size <= maxSizeKB * 1024) {
+        resolve(file);
+        return;
+      }
+
+      const img = new window.Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+
+        // Scale down if too large (max 1920px on longest side)
+        const maxDim = 1920;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round(height * (maxDim / width));
+            width = maxDim;
+          } else {
+            width = Math.round(width * (maxDim / height));
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Try decreasing quality until under maxSizeKB
+        let quality = 0.8;
+        const tryCompress = () => {
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) { resolve(file); return; }
+              if (blob.size <= maxSizeKB * 1024 || quality <= 0.3) {
+                resolve(blob);
+              } else {
+                quality -= 0.1;
+                tryCompress();
+              }
+            },
+            'image/jpeg',
+            quality
+          );
+        };
+        tryCompress();
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  };
+
   // Handle image upload
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -607,8 +769,11 @@ function LineChatPageContent() {
       return;
     }
 
+    // Compress image before upload
+    const compressed = await compressImage(file);
+
     const tempId = `temp-${Date.now()}`;
-    const localUrl = URL.createObjectURL(file);
+    const localUrl = URL.createObjectURL(compressed);
 
     // Optimistic update
     const optimisticMessage: LineMessage = {
@@ -631,11 +796,11 @@ function LineChatPageContent() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('No session');
 
-      // Upload to Supabase Storage
-      const fileName = `admin-images/${Date.now()}-${file.name}`;
+      // Upload compressed image to Supabase Storage
+      const fileName = `admin-images/${Date.now()}-${file.name.replace(/\.[^.]+$/, '.jpg')}`;
       const { error: uploadError } = await supabase.storage
         .from('chat-media')
-        .upload(fileName, file, { contentType: file.type });
+        .upload(fileName, compressed, { contentType: 'image/jpeg' });
 
       if (uploadError) throw uploadError;
 
@@ -1417,76 +1582,86 @@ function LineChatPageContent() {
                 <p>ยังไม่มีข้อความ</p>
               </div>
             ) : (
-              contacts.map((contact) => (
-                <button
-                  key={contact.id}
-                  onClick={() => setSelectedContact(contact)}
-                  className={`w-full p-3 flex items-center gap-3 hover:bg-gray-50 transition-colors border-b border-gray-100 ${selectedContact?.id === contact.id ? 'bg-[#06C755]/10' : ''
-                    }`}
-                >
-                  {/* Avatar */}
-                  <div className="relative flex-shrink-0">
-                    {contact.picture_url ? (
-                      <Image
-                        src={contact.picture_url}
-                        alt={contact.display_name}
-                        width={48}
-                        height={48}
-                        className="w-12 h-12 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-12 h-12 bg-[#06C755] rounded-full flex items-center justify-center">
-                        <User className="w-6 h-6 text-white" />
-                      </div>
-                    )}
-                    {contact.unread_count > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
-                        {contact.unread_count > 9 ? '9+' : contact.unread_count}
-                      </span>
-                    )}
-                    {/* Linked customer indicator */}
-                    {contact.customer && (
-                      <span className="absolute -bottom-0.5 -right-0.5 bg-blue-500 text-white w-4 h-4 rounded-full flex items-center justify-center shadow-sm border border-white">
-                        <LinkIcon className="w-2.5 h-2.5" />
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-gray-900 truncate">
-                        {contact.display_name}
-                      </span>
-                      <span className="text-xs text-gray-400">
-                        {formatLastMessage(contact.last_message_at)}
-                      </span>
+              <>
+                {contacts.map((contact) => (
+                  <button
+                    key={contact.id}
+                    onClick={() => setSelectedContact(contact)}
+                    className={`w-full p-3 flex items-center gap-3 hover:bg-gray-50 transition-colors border-b border-gray-100 ${selectedContact?.id === contact.id ? 'bg-[#06C755]/10' : ''
+                      }`}
+                  >
+                    {/* Avatar */}
+                    <div className="relative flex-shrink-0">
+                      {contact.picture_url ? (
+                        <Image
+                          src={contact.picture_url}
+                          alt={contact.display_name}
+                          width={48}
+                          height={48}
+                          className="w-12 h-12 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-[#06C755] rounded-full flex items-center justify-center">
+                          <User className="w-6 h-6 text-white" />
+                        </div>
+                      )}
+                      {contact.unread_count > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                          {contact.unread_count > 9 ? '9+' : contact.unread_count}
+                        </span>
+                      )}
+                      {/* Linked customer indicator */}
+                      {contact.customer && (
+                        <span className="absolute -bottom-0.5 -right-0.5 bg-blue-500 text-white w-4 h-4 rounded-full flex items-center justify-center shadow-sm border border-white">
+                          <LinkIcon className="w-2.5 h-2.5" />
+                        </span>
+                      )}
                     </div>
-                    {/* Last message preview */}
-                    {contact.last_message ? (
-                      <div className="text-xs text-gray-500 truncate">
-                        {contact.last_message}
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-900 truncate">
+                          {contact.display_name}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {formatLastMessage(contact.last_message_at)}
+                        </span>
                       </div>
-                    ) : contact.customer ? (
-                      <div className="text-xs text-[#06C755] truncate flex items-center gap-1">
-                        <LinkIcon className="w-3 h-3" />
-                        {contact.customer.customer_code} - {contact.customer.name}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-gray-400">ยังไม่มีข้อความ</div>
-                    )}
-                    {/* Show last order date when filtering by linked customers */}
-                    {filterLinked === 'linked' && (
-                      <div className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                        <Clock className="w-3 h-3" />
-                        {contact.last_order_date
-                          ? `สั่งล่าสุด: ${new Date(contact.last_order_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}`
-                          : 'ยังไม่เคยสั่ง'}
-                      </div>
-                    )}
-                  </div>
-                </button>
-              ))
+                      {/* Last message preview */}
+                      {contact.last_message ? (
+                        <div className="text-xs text-gray-500 truncate">
+                          {contact.last_message}
+                        </div>
+                      ) : contact.customer ? (
+                        <div className="text-xs text-[#06C755] truncate flex items-center gap-1">
+                          <LinkIcon className="w-3 h-3" />
+                          {contact.customer.customer_code} - {contact.customer.name}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-400">ยังไม่มีข้อความ</div>
+                      )}
+                      {/* Show last order date when filtering by linked customers */}
+                      {filterLinked === 'linked' && (
+                        <div className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                          <Clock className="w-3 h-3" />
+                          {contact.last_order_date
+                            ? `สั่งล่าสุด: ${new Date(contact.last_order_created_at || contact.last_order_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}${contact.last_order_created_at ? ' ' + new Date(contact.last_order_created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : ''}`
+                            : 'ยังไม่เคยสั่ง'}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                ))}
+                {/* Infinite scroll sentinel */}
+                <div ref={contactsEndRef} className="py-2">
+                  {loadingMoreContacts && (
+                    <div className="flex items-center justify-center py-2">
+                      <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -1524,24 +1699,24 @@ function LineChatPageContent() {
                   <div>
                     <h3 className="font-medium text-gray-900">{selectedContact.display_name}</h3>
                     {selectedContact.customer ? (
-                      <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-col">
                         <p className="text-xs text-[#06C755]">
-                          {selectedContact.customer.customer_code} - {selectedContact.customer.name}
+                          {selectedContact.customer.name}
                         </p>
-                        <p className="text-[10px] text-gray-500 flex items-center gap-2">
+                        <p className="text-[10px] text-gray-500">
                           {selectedContact.last_order_date ? (
-                            <span>
-                              ออเดอร์ล่าสุด: {new Date(selectedContact.last_order_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
-                            </span>
+                            <>
+                              ล่าสุด {new Date(selectedContact.last_order_created_at || selectedContact.last_order_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })} {selectedContact.last_order_created_at && new Date(selectedContact.last_order_created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                            </>
                           ) : (
                             <span className="text-orange-500">ยังไม่เคยสั่ง</span>
                           )}
-                          {selectedContact.avg_order_frequency && (
-                            <span className="text-gray-400">
-                              • เฉลี่ย {selectedContact.avg_order_frequency} วัน/ออเดอร์
-                            </span>
-                          )}
                         </p>
+                        {selectedContact.avg_order_frequency != null && (
+                          <p className="text-[10px] text-gray-400">
+                            {selectedContact.avg_order_frequency <= 1 ? 'สั่งทุกวัน' : `~${selectedContact.avg_order_frequency} วัน/ออเดอร์`}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <button
@@ -1657,25 +1832,14 @@ function LineChatPageContent() {
                   </div>
                 ) : (
                   <>
-                    {/* Load More Button */}
-                    {hasMoreMessages && (
-                      <div className="flex justify-center">
-                        <button
-                          onClick={() => fetchMessages(selectedContact!.id, true)}
-                          disabled={loadingMore}
-                          className="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
-                        >
-                          {loadingMore ? (
-                            <span className="flex items-center gap-2">
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              กำลังโหลด...
-                            </span>
-                          ) : (
-                            'โหลดข้อความเก่า'
-                          )}
-                        </button>
-                      </div>
-                    )}
+                    {/* Infinite scroll sentinel for older messages */}
+                    <div ref={messagesTopRef} className="py-1">
+                      {loadingMore && (
+                        <div className="flex items-center justify-center py-2">
+                          <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                        </div>
+                      )}
+                    </div>
                     {messages.map((msg) => (
                     <div
                       key={msg.id}
@@ -1765,10 +1929,29 @@ function LineChatPageContent() {
                               <img
                                 src={msg.raw_message.imageUrl}
                                 alt="image"
-                                className="max-w-full max-h-64 rounded-lg cursor-pointer"
-                                onClick={(e) => window.open((e.target as HTMLImageElement).src, '_blank')}
+                                className="max-w-full max-h-64 rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                                onClick={() => openLightbox(msg.raw_message!.imageUrl!)}
                                 onLoad={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
                               />
+                            ) : msg.message_type === 'video' && msg.raw_message?.videoUrl ? (
+                              /* Video from storage */
+                              <div
+                                className="relative max-w-full max-h-64 rounded-lg cursor-pointer overflow-hidden group"
+                                onClick={() => openLightbox(msg.raw_message!.videoUrl!)}
+                              >
+                                {msg.raw_message.previewUrl ? (
+                                  <img src={msg.raw_message.previewUrl} alt="video preview" className="max-w-full max-h-64 rounded-lg" onLoad={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })} />
+                                ) : (
+                                  <div className="w-48 h-32 bg-gray-800 rounded-lg flex items-center justify-center">
+                                    <Play className="w-10 h-10 text-white" />
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
+                                  <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center shadow-lg">
+                                    <Play className="w-6 h-6 text-gray-800 ml-0.5" />
+                                  </div>
+                                </div>
+                              </div>
                             ) : msg.message_type === 'location' && msg.raw_message?.latitude && msg.raw_message?.longitude ? (
                               /* Location */
                               <a
@@ -2022,7 +2205,7 @@ function LineChatPageContent() {
                             <span className="font-medium text-gray-900">{order.order_number}</span>
                             {order.order_date && (
                               <p className="text-xs text-gray-400 mt-0.5">
-                                เปิดบิล {new Date(order.order_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                                เปิดบิล {new Date(order.created_at || order.order_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })} {order.created_at && new Date(order.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
                               </p>
                             )}
                           </div>
@@ -2447,7 +2630,7 @@ function LineChatPageContent() {
                             <span className="font-medium text-gray-900">{order.order_number}</span>
                             {order.order_date && (
                               <p className="text-xs text-gray-400 mt-0.5">
-                                เปิดบิล {new Date(order.order_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                                เปิดบิล {new Date(order.created_at || order.order_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })} {order.created_at && new Date(order.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
                               </p>
                             )}
                           </div>
@@ -2871,6 +3054,147 @@ function LineChatPageContent() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Lightbox / Gallery Overlay */}
+      {(lightboxIndex !== null || showGallery) && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center"
+          onClick={() => { setLightboxIndex(null); setShowGallery(false); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              if (showGallery && lightboxIndex !== null) { setShowGallery(false); }
+              else { setLightboxIndex(null); setShowGallery(false); }
+            }
+            if (!showGallery && lightboxIndex !== null) {
+              if (e.key === 'ArrowLeft' && lightboxIndex > 0) setLightboxIndex(lightboxIndex - 1);
+              if (e.key === 'ArrowRight' && lightboxIndex < mediaList.length - 1) setLightboxIndex(lightboxIndex + 1);
+            }
+          }}
+          tabIndex={0}
+          ref={(el) => el?.focus()}
+        >
+          {/* Top bar */}
+          <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4 z-10">
+            <span className="text-white/70 text-sm">
+              {showGallery ? `แกลเลอรี่ (${mediaList.length})` : lightboxIndex !== null ? `${lightboxIndex + 1} / ${mediaList.length}` : ''}
+            </span>
+            <div className="flex items-center gap-2">
+              {!showGallery && lightboxMedia && (
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      const res = await fetch(lightboxMedia.url);
+                      const blob = await res.blob();
+                      const blobUrl = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = blobUrl;
+                      const ext = lightboxMedia.type === 'video' ? 'mp4' : 'jpg';
+                      a.download = `chat-${Date.now()}.${ext}`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      URL.revokeObjectURL(blobUrl);
+                    } catch {
+                      window.open(lightboxMedia.url, '_blank');
+                    }
+                  }}
+                  className="p-2.5 bg-white/20 hover:bg-white/30 rounded-full transition-colors text-white"
+                  title="บันทึก"
+                >
+                  <Download className="w-5 h-5" />
+                </button>
+              )}
+              {mediaList.length > 1 && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowGallery(!showGallery); }}
+                  className={`p-2.5 rounded-full transition-colors text-white ${showGallery ? 'bg-white/40' : 'bg-white/20 hover:bg-white/30'}`}
+                  title="แกลเลอรี่"
+                >
+                  <Images className="w-5 h-5" />
+                </button>
+              )}
+              <button
+                onClick={() => { setLightboxIndex(null); setShowGallery(false); }}
+                className="p-2.5 bg-white/20 hover:bg-white/30 rounded-full transition-colors text-white"
+                title="ปิด"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {showGallery ? (
+            /* Gallery Grid View */
+            <div className="max-w-lg w-full max-h-[80vh] overflow-y-auto p-4 mt-14" onClick={(e) => e.stopPropagation()}>
+              <div className="grid grid-cols-3 gap-2">
+                {mediaList.map((media, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => { setShowGallery(false); setLightboxIndex(idx); }}
+                    className={`relative aspect-square rounded-lg overflow-hidden bg-gray-800 hover:opacity-80 transition-opacity ${lightboxIndex === idx ? 'ring-2 ring-white' : ''}`}
+                  >
+                    {media.type === 'image' ? (
+                      <img src={media.url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <>
+                        <div className="w-full h-full bg-gray-800 flex items-center justify-center">
+                          <Play className="w-8 h-8 text-white/80" />
+                        </div>
+                        <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">VDO</div>
+                      </>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : lightboxMedia && lightboxIndex !== null ? (
+            <>
+              {/* Previous arrow */}
+              <button
+                onClick={(e) => { e.stopPropagation(); setLightboxIndex(lightboxIndex - 1); }}
+                disabled={lightboxIndex <= 0}
+                className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 p-2 md:p-3 bg-white/20 hover:bg-white/30 disabled:opacity-20 disabled:cursor-not-allowed rounded-full transition-colors text-white z-10"
+                title="รูปก่อนหน้า"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+
+              {/* Next arrow */}
+              <button
+                onClick={(e) => { e.stopPropagation(); setLightboxIndex(lightboxIndex + 1); }}
+                disabled={lightboxIndex >= mediaList.length - 1}
+                className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 p-2 md:p-3 bg-white/20 hover:bg-white/30 disabled:opacity-20 disabled:cursor-not-allowed rounded-full transition-colors text-white z-10"
+                title="รูปถัดไป"
+              >
+                <ChevronRight className="w-6 h-6" />
+              </button>
+
+              {/* Content */}
+              <div className="max-w-[90vw] max-h-[85vh] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                {lightboxMedia.type === 'image' ? (
+                  <img
+                    src={lightboxMedia.url}
+                    alt="Full size"
+                    className="max-w-full max-h-[85vh] object-contain rounded-lg select-none"
+                    draggable={false}
+                  />
+                ) : (
+                  <video
+                    key={lightboxMedia.url}
+                    src={lightboxMedia.url}
+                    controls
+                    autoPlay
+                    className="max-w-full max-h-[85vh] rounded-lg"
+                  >
+                    เบราว์เซอร์ไม่รองรับการเล่นวิดีโอ
+                  </video>
+                )}
+              </div>
+            </>
+          ) : null}
         </div>
       )}
 

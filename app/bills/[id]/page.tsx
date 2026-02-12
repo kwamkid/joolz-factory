@@ -5,7 +5,9 @@ import { useParams } from 'next/navigation';
 import Image from 'next/image';
 import imageCompression from 'browser-image-compression';
 import { useToast } from '@/lib/toast-context';
-import { Loader2, Printer, FileText, MapPin, Package, Camera, Upload, Clock, CheckCircle2 } from 'lucide-react';
+import { Loader2, Printer, FileText, MapPin, Package, Camera, Upload, Clock, CheckCircle2, CreditCard, Banknote, Globe } from 'lucide-react';
+import { getBankByCode } from '@/lib/constants/banks';
+import { BEAM_CHANNELS } from '@/lib/constants/payment-gateway';
 
 interface BillItem {
   product_code?: string;
@@ -45,6 +47,18 @@ interface PaymentRecord {
   payment_date: string;
 }
 
+interface PaymentChannelData {
+  type: 'cash' | 'bank_transfer' | 'payment_gateway';
+  name: string;
+  config?: {
+    bank_code?: string;
+    account_number?: string;
+    account_name?: string;
+    description?: string;
+  };
+  available_channels?: Array<{ code: string; fee_payer: string }>;
+}
+
 interface BillData {
   id: string;
   order_number: string;
@@ -59,6 +73,8 @@ interface BillData {
   payment_status: string;
   notes?: string;
   payment_record?: PaymentRecord | null;
+  payment_channels?: PaymentChannelData[];
+  customer_type?: string;
   customer: {
     name: string;
     contact_person?: string;
@@ -96,7 +112,7 @@ export default function BillOnlinePage() {
 
   // Payment form state
   const [showPaymentForm, setShowPaymentForm] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer'>('transfer');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank_transfer' | 'payment_gateway'>('bank_transfer');
   const [transferDate, setTransferDate] = useState('');
   const [transferTime, setTransferTime] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
@@ -104,11 +120,23 @@ export default function BillOnlinePage() {
   const [slipPreview, setSlipPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [gatewayLoading, setGatewayLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Helper: get Beam channel Thai name
+  const getBeamChannelName = (code: string) => {
+    return BEAM_CHANNELS.find(ch => ch.code === code)?.name_th || code;
+  };
 
   useEffect(() => {
     if (orderId) {
       fetchBill();
+    }
+    // Handle Beam redirect return
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('payment') === 'success') {
+      setSubmitSuccess(true);
+      window.history.replaceState({}, '', `/bills/${orderId}`);
     }
   }, [orderId]);
 
@@ -149,7 +177,7 @@ export default function BillOnlinePage() {
   const handleSubmitPayment = async () => {
     if (!bill) return;
 
-    if (paymentMethod === 'transfer' && !transferDate) {
+    if (paymentMethod === 'bank_transfer' && !transferDate) {
       showToast('กรุณาระบุวันที่โอนเงิน', 'error');
       return;
     }
@@ -160,7 +188,7 @@ export default function BillOnlinePage() {
       const formData = new FormData();
       formData.append('order_id', bill.id);
       formData.append('payment_method', paymentMethod);
-      if (paymentMethod === 'transfer') {
+      if (paymentMethod === 'bank_transfer') {
         if (transferDate) formData.append('transfer_date', transferDate);
         if (transferTime) formData.append('transfer_time', transferTime);
       }
@@ -183,6 +211,29 @@ export default function BillOnlinePage() {
       showToast(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด', 'error');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleGatewayPayment = async () => {
+    if (!bill) return;
+    setGatewayLoading(true);
+    try {
+      const response = await fetch('/api/beam/create-payment-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: bill.id }),
+      });
+
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'ไม่สามารถสร้างลิงก์ชำระเงินได้');
+      }
+
+      const { payment_url } = await response.json();
+      window.location.href = payment_url;
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด', 'error');
+      setGatewayLoading(false);
     }
   };
 
@@ -554,38 +605,107 @@ export default function BillOnlinePage() {
                       แจ้งชำระเงิน
                     </h3>
 
-                    {/* Payment Method */}
+                    {/* Payment Method — dynamic from payment_channels */}
                     <div>
                       <label className="block text-base font-medium text-gray-600 mb-2">วิธีชำระ</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPaymentMethod('transfer')}
-                          className={`px-3 py-3 rounded-lg border-2 text-base font-medium transition-colors ${
-                            paymentMethod === 'transfer'
-                              ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]'
-                              : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                          }`}
-                        >
-                          โอนเงิน
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPaymentMethod('cash')}
-                          className={`px-3 py-3 rounded-lg border-2 text-base font-medium transition-colors ${
-                            paymentMethod === 'cash'
-                              ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]'
-                              : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                          }`}
-                        >
-                          เงินสด
-                        </button>
-                      </div>
+                      {bill.payment_channels && bill.payment_channels.length > 0 ? (
+                        <div className="grid grid-cols-1 gap-2">
+                          {bill.payment_channels.some(ch => ch.type === 'bank_transfer') && (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentMethod('bank_transfer')}
+                              className={`flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-base font-medium transition-colors ${
+                                paymentMethod === 'bank_transfer'
+                                  ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]'
+                                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                              }`}
+                            >
+                              <CreditCard className="w-5 h-5" />
+                              โอนธนาคาร
+                            </button>
+                          )}
+                          {bill.payment_channels.some(ch => ch.type === 'payment_gateway') && (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentMethod('payment_gateway')}
+                              className={`flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-base font-medium transition-colors ${
+                                paymentMethod === 'payment_gateway'
+                                  ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]'
+                                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                              }`}
+                            >
+                              <Globe className="w-5 h-5" />
+                              ชำระออนไลน์
+                            </button>
+                          )}
+                          {bill.payment_channels.some(ch => ch.type === 'cash') && (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentMethod('cash')}
+                              className={`flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-base font-medium transition-colors ${
+                                paymentMethod === 'cash'
+                                  ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]'
+                                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                              }`}
+                            >
+                              <Banknote className="w-5 h-5" />
+                              เงินสด
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        /* Fallback: original 2 buttons if no channels configured */
+                        <div className="grid grid-cols-2 gap-2">
+                          <button type="button" onClick={() => setPaymentMethod('bank_transfer')}
+                            className={`px-3 py-3 rounded-lg border-2 text-base font-medium transition-colors ${paymentMethod === 'bank_transfer' ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                            โอนเงิน
+                          </button>
+                          <button type="button" onClick={() => setPaymentMethod('cash')}
+                            className={`px-3 py-3 rounded-lg border-2 text-base font-medium transition-colors ${paymentMethod === 'cash' ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                            เงินสด
+                          </button>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Transfer fields */}
-                    {paymentMethod === 'transfer' && (
+                    {/* Bank Transfer section */}
+                    {paymentMethod === 'bank_transfer' && (
                       <>
+                        {/* Bank accounts from settings */}
+                        {bill.payment_channels && bill.payment_channels.filter(ch => ch.type === 'bank_transfer').length > 0 && (
+                          <div className="space-y-2">
+                            <label className="block text-base font-medium text-gray-600">โอนเข้าบัญชี</label>
+                            {bill.payment_channels
+                              .filter(ch => ch.type === 'bank_transfer')
+                              .map((ch, idx) => {
+                                const bank = getBankByCode(ch.config?.bank_code || '');
+                                return (
+                                  <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                    {bank?.logo ? (
+                                      <img
+                                        src={bank.logo}
+                                        alt={bank.name_th}
+                                        className="w-10 h-10 rounded-full flex-shrink-0 object-contain"
+                                      />
+                                    ) : (
+                                      <div
+                                        className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-white text-xs font-bold"
+                                        style={{ backgroundColor: bank?.color || '#999' }}
+                                      >
+                                        {bank?.code?.slice(0, 2) || '?'}
+                                      </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium text-gray-900 text-base">{bank?.name_th || ch.config?.bank_code}</div>
+                                      <div className="text-sm text-gray-600 font-mono">{ch.config?.account_number}</div>
+                                      <div className="text-sm text-gray-500">{ch.config?.account_name}</div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
+
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <label className="block text-base font-medium text-gray-600 mb-1">
@@ -645,43 +765,97 @@ export default function BillOnlinePage() {
                       </>
                     )}
 
-                    {/* Notes */}
-                    <div>
-                      <label className="block text-base font-medium text-gray-600 mb-1">หมายเหตุ</label>
-                      <textarea
-                        value={paymentNotes}
-                        onChange={(e) => setPaymentNotes(e.target.value)}
-                        placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
-                        rows={2}
-                        className="w-full px-3 py-3 border border-gray-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
-                      />
-                    </div>
+                    {/* Payment Gateway section */}
+                    {paymentMethod === 'payment_gateway' && (
+                      <div className="space-y-3">
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                          <p className="text-sm text-blue-700 mb-2">
+                            คุณจะถูกนำไปยังหน้าชำระเงินออนไลน์ รองรับช่องทาง:
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {bill.payment_channels
+                              ?.find(ch => ch.type === 'payment_gateway')
+                              ?.available_channels?.map(ac => (
+                                <span key={ac.code} className="px-2 py-1 bg-white rounded text-sm text-gray-700 border border-blue-100">
+                                  {getBeamChannelName(ac.code)}
+                                </span>
+                              ))}
+                          </div>
+                        </div>
 
-                    {/* Submit + Cancel */}
-                    <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={handleGatewayPayment}
+                          disabled={gatewayLoading}
+                          className="w-full bg-[#E9B308] text-[#00231F] py-4 rounded-xl font-bold text-lg hover:bg-[#d4a307] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {gatewayLoading ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              กำลังเตรียมหน้าชำระเงิน...
+                            </>
+                          ) : (
+                            <>
+                              <Globe className="w-5 h-5" />
+                              ชำระเงินออนไลน์
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Notes — show for cash and bank_transfer */}
+                    {paymentMethod !== 'payment_gateway' && (
+                      <div>
+                        <label className="block text-base font-medium text-gray-600 mb-1">หมายเหตุ</label>
+                        <textarea
+                          value={paymentNotes}
+                          onChange={(e) => setPaymentNotes(e.target.value)}
+                          placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
+                          rows={2}
+                          className="w-full px-3 py-3 border border-gray-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-[#E9B308] focus:border-transparent"
+                        />
+                      </div>
+                    )}
+
+                    {/* Submit + Cancel — show for cash and bank_transfer */}
+                    {paymentMethod !== 'payment_gateway' && (
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setShowPaymentForm(false)}
+                          className="flex-1 py-3 border border-gray-300 rounded-lg text-base text-gray-600 hover:bg-gray-50 transition-colors"
+                        >
+                          ยกเลิก
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSubmitPayment}
+                          disabled={submitting}
+                          className="flex-1 bg-[#E9B308] text-[#00231F] py-3 rounded-lg font-bold text-base hover:bg-[#d4a307] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {submitting ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              กำลังส่ง...
+                            </>
+                          ) : (
+                            'แจ้งชำระเงิน'
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Cancel only — for gateway */}
+                    {paymentMethod === 'payment_gateway' && (
                       <button
                         type="button"
                         onClick={() => setShowPaymentForm(false)}
-                        className="flex-1 py-3 border border-gray-300 rounded-lg text-base text-gray-600 hover:bg-gray-50 transition-colors"
+                        className="w-full py-3 border border-gray-300 rounded-lg text-base text-gray-600 hover:bg-gray-50 transition-colors"
                       >
                         ยกเลิก
                       </button>
-                      <button
-                        type="button"
-                        onClick={handleSubmitPayment}
-                        disabled={submitting}
-                        className="flex-1 bg-[#E9B308] text-[#00231F] py-3 rounded-lg font-bold text-base hover:bg-[#d4a307] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                      >
-                        {submitting ? (
-                          <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            กำลังส่ง...
-                          </>
-                        ) : (
-                          'แจ้งชำระเงิน'
-                        )}
-                      </button>
-                    </div>
+                    )}
                   </div>
                 )}
               </>

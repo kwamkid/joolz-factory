@@ -178,6 +178,21 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Step 2c: Fetch barcodes from product_variations
+    const variationBarcodeMap = new Map<string, string>();
+    if (variationIds.length > 0) {
+      const { data: variations } = await supabaseAdmin
+        .from('product_variations')
+        .select('id, barcode')
+        .in('id', variationIds);
+
+      (variations || []).forEach(v => {
+        if (v.barcode) {
+          variationBarcodeMap.set(v.id, v.barcode);
+        }
+      });
+    }
+
     // Step 3: Fetch shipments with shipping addresses
     const { data: shipments, error: shipmentsError } = await supabaseAdmin
       .from('order_shipments')
@@ -226,11 +241,11 @@ export async function GET(request: NextRequest) {
       customer: any;
       shippingAddress: any;
       deliveryNotes: string | null;
-      products: Map<string, { productName: string; productCode: string; bottleSize: string | null; quantity: number; image: string | null }>;
+      products: Map<string, { productName: string; productCode: string; bottleSize: string | null; quantity: number; image: string | null; barcode: string | null }>;
     }>>();
 
     // Product summary across all dates
-    const productSummaryMap = new Map<string, { productName: string; productCode: string; bottleSize: string | null; totalQuantity: number; image: string | null }>();
+    const productSummaryMap = new Map<string, { productName: string; productCode: string; bottleSize: string | null; totalQuantity: number; image: string | null; barcode: string | null }>();
 
     shipments?.forEach(shipment => {
       const orderItem = orderItemMap.get(shipment.order_item_id);
@@ -298,6 +313,7 @@ export async function GET(request: NextRequest) {
       // Variation image > product_images product-level > products.image
       const itemImage = (orderItem.variation_id ? variationImageMap.get(orderItem.variation_id) : null)
         || productImageMap.get(orderItem.product_id) || null;
+      const itemBarcode = (orderItem.variation_id ? variationBarcodeMap.get(orderItem.variation_id) : null) || null;
       if (!delivery.products.has(productKey)) {
         delivery.products.set(productKey, {
           productName: orderItem.product_name,
@@ -305,6 +321,7 @@ export async function GET(request: NextRequest) {
           bottleSize: orderItem.bottle_size || null,
           quantity: 0,
           image: itemImage,
+          barcode: itemBarcode,
         });
       }
       delivery.products.get(productKey)!.quantity += shipment.quantity;
@@ -317,6 +334,7 @@ export async function GET(request: NextRequest) {
           bottleSize: orderItem.bottle_size || null,
           totalQuantity: 0,
           image: itemImage,
+          barcode: itemBarcode,
         });
       }
       productSummaryMap.get(productKey)!.totalQuantity += shipment.quantity;
