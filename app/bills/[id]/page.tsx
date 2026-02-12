@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Image from 'next/image';
 import imageCompression from 'browser-image-compression';
+import { useToast } from '@/lib/toast-context';
 import { Loader2, Printer, FileText, MapPin, Package, Camera, Upload, Clock, CheckCircle2 } from 'lucide-react';
 
 interface BillItem {
@@ -87,6 +88,7 @@ function StatusPill({ label, color }: { label: string; color: string }) {
 
 export default function BillOnlinePage() {
   const params = useParams();
+  const { showToast } = useToast();
   const orderId = params.id as string;
   const [bill, setBill] = useState<BillData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -148,7 +150,7 @@ export default function BillOnlinePage() {
     if (!bill) return;
 
     if (paymentMethod === 'transfer' && !transferDate) {
-      alert('กรุณาระบุวันที่โอนเงิน');
+      showToast('กรุณาระบุวันที่โอนเงิน', 'error');
       return;
     }
 
@@ -178,7 +180,7 @@ export default function BillOnlinePage() {
       setSubmitSuccess(true);
       await fetchBill();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
+      showToast(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด', 'error');
     } finally {
       setSubmitting(false);
     }

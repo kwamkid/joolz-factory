@@ -263,13 +263,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fetch complete order details
+    // Fetch complete order details (rpc returns array)
     const { data: completeOrder } = await supabaseAdmin
       .rpc('get_order_details', { p_order_id: order.id });
 
+    // rpc returns an array — use first element, fall back to the inserted order
+    const orderResult = Array.isArray(completeOrder) ? completeOrder[0] : completeOrder;
+
     return NextResponse.json({
       success: true,
-      order: completeOrder
+      order: orderResult || order,
+      id: order.id,
+      order_number: order.order_number
     });
   } catch (error) {
     console.error('Server error:', error);

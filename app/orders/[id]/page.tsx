@@ -5,12 +5,12 @@ import { useRouter, useParams } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import OrderForm from '@/components/orders/OrderForm';
 import { useAuth } from '@/lib/auth-context';
+import { useToast } from '@/lib/toast-context';
 import { supabase } from '@/lib/supabase';
 import {
   ArrowLeft,
   Loader2,
   Printer,
-  CheckCircle,
   XCircle,
   Truck,
   Link2,
@@ -73,6 +73,7 @@ export default function OrderDetailPage() {
   const params = useParams();
   const orderId = params.id as string;
   const { userProfile, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
 
   // Order header info (loaded separately from OrderForm)
   const [orderNumber, setOrderNumber] = useState('');
@@ -107,8 +108,7 @@ export default function OrderDetailPage() {
   // Slip preview modal
   const [showSlipModal, setShowSlipModal] = useState(false);
 
-  // Toast
-  const [toast, setToast] = useState('');
+  // Toast (using global)
 
   useEffect(() => {
     if (!authLoading && userProfile && orderId) {
@@ -215,11 +215,11 @@ export default function OrderDetailPage() {
     // Validate payment details if marking as paid
     if (statusModal.statusType === 'payment' && statusModal.nextStatus === 'paid') {
       if (paymentDetails.paymentMethod === 'cash' && !paymentDetails.collectedBy.trim()) {
-        alert('กรุณาระบุชื่อคนเก็บเงิน');
+        showToast('กรุณาระบุชื่อคนเก็บเงิน', 'error');
         return;
       }
       if (paymentDetails.paymentMethod === 'transfer' && (!paymentDetails.transferDate || !paymentDetails.transferTime)) {
-        alert('กรุณาระบุวันที่และเวลาจากสลิป');
+        showToast('กรุณาระบุวันที่และเวลาจากสลิป', 'error');
         return;
       }
     }
@@ -283,11 +283,10 @@ export default function OrderDetailPage() {
       }
 
       closeStatusModal();
-      setToast(statusModal.nextStatus === 'cancelled' ? 'ยกเลิกคำสั่งซื้อสำเร็จ' : 'เปลี่ยนสถานะสำเร็จ');
-      setTimeout(() => setToast(''), 2500);
+      showToast(statusModal.nextStatus === 'cancelled' ? 'ยกเลิกคำสั่งซื้อสำเร็จ' : 'เปลี่ยนสถานะสำเร็จ');
     } catch (err) {
       console.error('Error updating status:', err);
-      alert('ไม่สามารถเปลี่ยนสถานะได้ กรุณาลองใหม่อีกครั้ง');
+      showToast('ไม่สามารถเปลี่ยนสถานะได้ กรุณาลองใหม่อีกครั้ง', 'error');
     } finally {
       setUpdating(false);
     }
@@ -323,12 +322,11 @@ export default function OrderDetailPage() {
       });
 
       setPaymentStatus('paid');
-      setToast('ยืนยันการชำระเงินสำเร็จ');
-      setTimeout(() => setToast(''), 2500);
+      showToast('ยืนยันการชำระเงินสำเร็จ');
       await fetchPaymentRecord(session.access_token);
     } catch (err) {
       console.error('Error approving payment:', err);
-      alert('ไม่สามารถยืนยันการชำระเงินได้');
+      showToast('ไม่สามารถยืนยันการชำระเงินได้', 'error');
     } finally {
       setUpdating(false);
     }
@@ -366,11 +364,10 @@ export default function OrderDetailPage() {
 
       setPaymentStatus('pending');
       setPaymentRecord(null);
-      setToast('ปฏิเสธการชำระเงินแล้ว');
-      setTimeout(() => setToast(''), 2500);
+      showToast('ปฏิเสธการชำระเงินแล้ว');
     } catch (err) {
       console.error('Error rejecting payment:', err);
-      alert('ไม่สามารถปฏิเสธการชำระเงินได้');
+      showToast('ไม่สามารถปฏิเสธการชำระเงินได้', 'error');
     } finally {
       setUpdating(false);
     }
@@ -440,8 +437,7 @@ export default function OrderDetailPage() {
               onClick={() => {
                 const billUrl = `${window.location.origin}/bills/${orderId}`;
                 navigator.clipboard.writeText(billUrl).then(() => {
-                  setToast('คัดลอกลิงก์บิลออนไลน์แล้ว');
-                  setTimeout(() => setToast(''), 2500);
+                  showToast('คัดลอกลิงก์บิลออนไลน์แล้ว');
                 });
               }}
               className="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-1.5 text-sm"
@@ -789,13 +785,6 @@ export default function OrderDetailPage() {
           </div>
         )}
 
-        {/* Toast */}
-        {toast && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-5 py-3 rounded-lg shadow-lg flex items-center gap-2 text-sm animate-fade-in">
-            <CheckCircle className="w-4 h-4 text-green-400" />
-            {toast}
-          </div>
-        )}
       </div>
     </Layout>
   );

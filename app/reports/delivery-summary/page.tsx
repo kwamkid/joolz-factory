@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
+import { useToast } from '@/lib/toast-context';
 import { supabase } from '@/lib/supabase';
 import DateRangePicker from '@/components/ui/DateRangePicker';
 import { DateValueType } from 'react-tailwindcss-datepicker';
@@ -348,6 +349,7 @@ function SortableDeliveryCard({
 export default function DeliverySummaryPage() {
   const router = useRouter();
   const { session, userProfile, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'packing' | 'delivery'>('packing');
   const [loading, setLoading] = useState(false);
@@ -540,11 +542,11 @@ export default function DeliverySummaryPage() {
 
     if (statusUpdateModal.statusType === 'payment' && statusUpdateModal.nextStatus === 'paid') {
       if (paymentDetails.paymentMethod === 'cash' && !paymentDetails.collectedBy.trim()) {
-        alert('กรุณาระบุชื่อคนเก็บเงิน');
+        showToast('กรุณาระบุชื่อคนเก็บเงิน', 'error');
         return;
       }
       if (paymentDetails.paymentMethod === 'transfer' && (!paymentDetails.transferDate || !paymentDetails.transferTime)) {
-        alert('กรุณาระบุวันที่และเวลาจากสลิป');
+        showToast('กรุณาระบุวันที่และเวลาจากสลิป', 'error');
         return;
       }
     }
@@ -590,7 +592,7 @@ export default function DeliverySummaryPage() {
       setStatusUpdateModal({ show: false, delivery: null, nextStatus: '', statusType: 'order' });
     } catch (err) {
       console.error('Error updating status:', err);
-      alert(err instanceof Error ? err.message : 'ไม่สามารถอัพเดทสถานะได้');
+      showToast(err instanceof Error ? err.message : 'ไม่สามารถอัพเดทสถานะได้', 'error');
     } finally {
       setUpdatingStatus(false);
     }
@@ -875,7 +877,7 @@ export default function DeliverySummaryPage() {
       pdfMake.createPdf(docDefinition).download(`packing-list-${deliveryDate}.pdf`);
     } catch (err) {
       console.error('Error generating PDF:', err);
-      alert('ไม่สามารถสร้าง PDF ได้');
+      showToast('ไม่สามารถสร้าง PDF ได้', 'error');
     } finally {
       setGeneratingPdf(false);
     }

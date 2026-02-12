@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
+import { useToast } from '@/lib/toast-context';
 import { supabase } from '@/lib/supabase';
 import {
   MessageCircle,
@@ -125,6 +126,7 @@ function LineChatPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { userProfile, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -170,8 +172,7 @@ function LineChatPageContent() {
   // Order detail view
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
-  // Toast notification
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  // Toast notification (using global)
 
   // Create customer state
   const [savingCustomer, setSavingCustomer] = useState(false);
@@ -197,13 +198,6 @@ function LineChatPageContent() {
 
   // Check if any filter is active
   const hasActiveFilter = filterLinked !== 'all' || filterUnread || filterOrderDaysRange !== null;
-
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 3000);
-    return () => clearTimeout(timer);
-  }, [toast]);
 
   // Fetch CRM settings (day ranges)
   useEffect(() => {
@@ -463,6 +457,65 @@ function LineChatPageContent() {
     }
   };
 
+  // Send bill summary to customer via LINE
+  const sendBillToCustomer = async (orderId: string, orderNumber: string, billUrl: string) => {
+    if (!selectedContact) return;
+
+    const messageText = `สรุปคำสั่งซื้อ ${orderNumber}\n\nดูรายละเอียดและชำระเงินได้ที่:\n${billUrl}`;
+    const tempId = `temp-${Date.now()}`;
+
+    // Optimistic update
+    const optimisticMessage: LineMessage = {
+      id: tempId,
+      _tempId: tempId,
+      line_contact_id: selectedContact.id,
+      direction: 'outgoing',
+      message_type: 'text',
+      content: messageText,
+      created_at: new Date().toISOString(),
+      _status: 'sending'
+    };
+    setMessages(prev => [...prev, optimisticMessage]);
+
+    // Close order form, go back to chat
+    setMobileView('chat');
+    setRightPanel(null);
+
+    // Async send
+    const contactId = selectedContact.id;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No session');
+
+      const response = await fetch('/api/line/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          contact_id: contactId,
+          message: messageText
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed');
+      const result = await response.json();
+
+      if (result.message) {
+        setMessages(prev => prev.map(m =>
+          m._tempId === tempId ? { ...result.message, _status: 'sent' as const } : m
+        ));
+      }
+      showToast('ส่งบิลให้ลูกค้าสำเร็จ!');
+    } catch {
+      setMessages(prev => prev.map(m =>
+        m._tempId === tempId ? { ...m, _status: 'failed' as const } : m
+      ));
+      showToast('ส่งบิลไม่สำเร็จ', 'error');
+    }
+  };
+
   const sendMessage = (retryMessage?: LineMessage) => {
     const messageText = retryMessage?.content || newMessage.trim();
     if (!messageText || !selectedContact) return;
@@ -544,13 +597,13 @@ function LineChatPageContent() {
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      setToast({ message: 'กรุณาเลือกไฟล์รูปภาพ', type: 'error' });
+      showToast('กรุณาเลือกไฟล์รูปภาพ', 'error');
       return;
     }
 
     // Validate file size (max 10MB for LINE)
     if (file.size > 10 * 1024 * 1024) {
-      setToast({ message: 'ไฟล์ใหญ่เกินไป (สูงสุด 10MB)', type: 'error' });
+      showToast('ไฟล์ใหญ่เกินไป (สูงสุด 10MB)', 'error');
       return;
     }
 
@@ -1905,8 +1958,9 @@ function LineChatPageContent() {
                 embedded={true}
                 onSuccess={(orderId) => {
                   setMobileView('chat');
-                  setToast({ message: 'สร้างคำสั่งซื้อสำเร็จ!', type: 'success' });
+                  showToast('สร้างคำสั่งซื้อสำเร็จ!');
                 }}
+                onSendBillToChat={sendBillToCustomer}
                 onCancel={() => setMobileView('chat')}
               />
             </div>
@@ -2289,7 +2343,7 @@ function LineChatPageContent() {
                 embedded={true}
                 onSuccess={(orderId) => {
                   setMobileView('history');
-                  setToast({ message: 'บันทึกการแก้ไขสำเร็จ!', type: 'success' });
+                  showToast('บันทึกการแก้ไขสำเร็จ!');
                   if (selectedContact?.customer) fetchOrderHistory(selectedContact.customer.id);
                 }}
                 onCancel={() => setMobileView('history')}
@@ -2328,8 +2382,9 @@ function LineChatPageContent() {
                 embedded={true}
                 onSuccess={(orderId) => {
                   setRightPanel(null);
-                  setToast({ message: 'สร้างคำสั่งซื้อสำเร็จ!', type: 'success' });
+                  showToast('สร้างคำสั่งซื้อสำเร็จ!');
                 }}
+                onSendBillToChat={sendBillToCustomer}
                 onCancel={() => setRightPanel(null)}
               />
             </div>
@@ -2729,7 +2784,7 @@ function LineChatPageContent() {
                 embedded={true}
                 onSuccess={(orderId) => {
                   setRightPanel('history');
-                  setToast({ message: 'บันทึกการแก้ไขสำเร็จ!', type: 'success' });
+                  showToast('บันทึกการแก้ไขสำเร็จ!');
                   if (selectedContact?.customer) fetchOrderHistory(selectedContact.customer.id);
                 }}
                 onCancel={() => setRightPanel('history')}
@@ -2738,25 +2793,6 @@ function LineChatPageContent() {
           </div>
         )}
       </div>
-
-      {/* Toast Notification */}
-      {toast && (
-        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-lg shadow-lg flex items-center gap-2 text-sm font-medium transition-all animate-in fade-in slide-in-from-bottom-4 ${
-          toast.type === 'success'
-            ? 'bg-green-600 text-white'
-            : 'bg-red-600 text-white'
-        }`}>
-          {toast.type === 'success' ? (
-            <Check className="w-4 h-4" />
-          ) : (
-            <AlertCircle className="w-4 h-4" />
-          )}
-          {toast.message}
-          <button onClick={() => setToast(null)} className="ml-2 p-0.5 hover:bg-white/20 rounded">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
 
       {/* Link Customer Modal */}
       {showLinkModal && (

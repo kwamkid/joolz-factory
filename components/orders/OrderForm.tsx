@@ -18,7 +18,7 @@ import {
   Copy,
   ChevronDown,
   CheckCircle,
-  ExternalLink
+  Send
 } from 'lucide-react';
 
 // Interfaces
@@ -100,6 +100,8 @@ interface OrderFormProps {
   onCancel?: () => void;
   // Embedded mode (no back button, different styling)
   embedded?: boolean;
+  // Callback to send bill to customer via LINE Chat (only from LINE Chat new order)
+  onSendBillToChat?: (orderId: string, orderNumber: string, billUrl: string) => void;
 }
 
 export default function OrderForm({
@@ -108,7 +110,8 @@ export default function OrderForm({
   editOrderId,
   onSuccess,
   onCancel,
-  embedded = false
+  embedded = false,
+  onSendBillToChat
 }: OrderFormProps) {
   const router = useRouter();
   const { userProfile, loading: authLoading } = useAuth();
@@ -122,6 +125,7 @@ export default function OrderForm({
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [savedOrderId, setSavedOrderId] = useState('');
   const [savedOrderNumber, setSavedOrderNumber] = useState('');
+  const [billLinkCopied, setBillLinkCopied] = useState(false);
 
   // Edit mode
   const [editOrderNumber, setEditOrderNumber] = useState('');
@@ -898,7 +902,7 @@ export default function OrderForm({
       } else {
         // New order: show success modal with bill online option
         setSavedOrderId(newOrderId);
-        setSavedOrderNumber(result.order?.order_number || '');
+        setSavedOrderNumber(result.order?.order_number || result.order_number || '');
         setShowSuccessModal(true);
       }
     } catch (error) {
@@ -1669,8 +1673,21 @@ export default function OrderForm({
 
       {/* Success Modal with Bill Online */}
       {showSuccessModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md mx-4 w-full" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => setShowSuccessModal(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowSuccessModal(false); }}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+        >
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4 w-full relative" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setShowSuccessModal(false)}
+              className="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
             <div className="text-center">
               <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
                 <CheckCircle className="w-10 h-10 text-green-600" />
@@ -1680,31 +1697,54 @@ export default function OrderForm({
                 <p className="text-gray-600 mb-4">เลขที่คำสั่งซื้อ: <span className="font-medium">{savedOrderNumber}</span></p>
               )}
               <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const billUrl = `${window.location.origin}/bills/${savedOrderId}`;
-                    navigator.clipboard.writeText(billUrl);
-                    window.open(`/bills/${savedOrderId}`, '_blank');
-                  }}
-                  className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  เปิดบิลออนไลน์
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const billUrl = `${window.location.origin}/bills/${savedOrderId}`;
-                    navigator.clipboard.writeText(billUrl).then(() => {
-                      alert('คัดลอกลิงก์บิลออนไลน์แล้ว');
-                    });
-                  }}
-                  className="w-full flex items-center justify-center gap-2 border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-                >
-                  <Copy className="w-4 h-4" />
-                  คัดลอกลิงก์บิลออนไลน์
-                </button>
+                {/* Bill Online Link with copy */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1 text-left">บิลออนไลน์</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={`${typeof window !== 'undefined' ? window.location.origin : ''}/bills/${savedOrderId}`}
+                      className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 select-all"
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const billUrl = `${window.location.origin}/bills/${savedOrderId}`;
+                        navigator.clipboard.writeText(billUrl);
+                        setBillLinkCopied(true);
+                        setTimeout(() => setBillLinkCopied(false), 2000);
+                      }}
+                      className={`flex-shrink-0 p-2 rounded-lg transition-colors ${
+                        billLinkCopied
+                          ? 'bg-green-100 text-green-600'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title="คัดลอกลิงก์"
+                    >
+                      {billLinkCopied ? <CheckCircle className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                    </button>
+                  </div>
+                  {billLinkCopied && (
+                    <p className="text-xs text-green-600 mt-1 text-left">คัดลอกแล้ว!</p>
+                  )}
+                </div>
+
+                {onSendBillToChat && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const billUrl = `${window.location.origin}/bills/${savedOrderId}`;
+                      setShowSuccessModal(false);
+                      onSendBillToChat(savedOrderId, savedOrderNumber, billUrl);
+                    }}
+                    className="w-full px-4 py-2.5 bg-[#E9B308] text-[#00231F] rounded-lg hover:bg-[#d4a307] transition-colors font-medium flex items-center justify-center gap-2"
+                  >
+                    <Send className="w-4 h-4" />
+                    ส่งบิลให้ลูกค้า
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -1715,7 +1755,11 @@ export default function OrderForm({
                       router.push(`/orders/${savedOrderId}`);
                     }
                   }}
-                  className="w-full px-4 py-2.5 bg-[#E9B308] text-[#00231F] rounded-lg hover:bg-[#d4a307] transition-colors font-medium"
+                  className={`w-full px-4 py-2.5 rounded-lg transition-colors font-medium ${
+                    onSendBillToChat
+                      ? 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+                      : 'bg-[#E9B308] text-[#00231F] hover:bg-[#d4a307]'
+                  }`}
                 >
                   ดูคำสั่งซื้อ
                 </button>

@@ -2,6 +2,7 @@
 import type { Metadata } from 'next';
 import { IBM_Plex_Sans_Thai } from 'next/font/google';
 import { AuthProvider } from '@/lib/auth-context';
+import { ToastProvider } from '@/lib/toast-context';
 import './globals.css';
 
 const ibmPlexSansThai = IBM_Plex_Sans_Thai({
@@ -24,7 +25,9 @@ export default function RootLayout({
     <html lang="th">
       <body className={ibmPlexSansThai.className}>
         <AuthProvider>
-          {children}
+          <ToastProvider>
+            {children}
+          </ToastProvider>
         </AuthProvider>
       </body>
     </html>

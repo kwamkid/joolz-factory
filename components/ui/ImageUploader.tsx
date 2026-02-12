@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useToast } from '@/lib/toast-context';
 import { ImagePlus, X, Loader2, GripVertical } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
 
@@ -145,6 +146,7 @@ export default function ImageUploader({
   disabled = false,
   compact = false
 }: ImageUploaderProps) {
+  const { showToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
@@ -157,7 +159,7 @@ export default function ImageUploader({
   const processFiles = async (files: File[]) => {
     const remainingSlots = maxImages - images.length;
     if (remainingSlots <= 0) {
-      alert(`อัพโหลดได้สูงสุด ${maxImages} รูป`);
+      showToast(`อัพโหลดได้สูงสุด ${maxImages} รูป`, 'error');
       return;
     }
 
@@ -242,7 +244,7 @@ export default function ImageUploader({
       }
     } catch (error) {
       console.error('Error processing images:', error);
-      alert('เกิดข้อผิดพลาดในการจัดการรูปภาพ');
+      showToast('เกิดข้อผิดพลาดในการจัดการรูปภาพ', 'error');
     } finally {
       setUploading(false);
       setUploadProgress('');
@@ -368,7 +370,7 @@ export default function ImageUploader({
       }
     } catch (error) {
       console.error('Error deleting image:', error);
-      alert('เกิดข้อผิดพลาดในการลบรูปภาพ');
+      showToast('เกิดข้อผิดพลาดในการลบรูปภาพ', 'error');
     }
   };
 

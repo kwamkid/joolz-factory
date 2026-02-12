@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth-context';
+import { useToast } from '@/lib/toast-context';
 import { supabase } from '@/lib/supabase';
 import DateRangePicker from '@/components/ui/DateRangePicker';
 import { DateValueType } from 'react-tailwindcss-datepicker';
@@ -116,6 +117,7 @@ function PaymentStatusBadge({ status, clickable = false }: { status: string; cli
 export default function OrdersPage() {
   const router = useRouter();
   const { userProfile, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
 
   // Column visibility
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(() => {
@@ -363,11 +365,11 @@ export default function OrdersPage() {
     // If updating payment status to 'paid', validate payment details
     if (statusUpdateModal.statusType === 'payment' && statusUpdateModal.nextStatus === 'paid') {
       if (paymentDetails.paymentMethod === 'cash' && !paymentDetails.collectedBy.trim()) {
-        alert('กรุณาระบุชื่อคนเก็บเงิน');
+        showToast('กรุณาระบุชื่อคนเก็บเงิน', 'error');
         return;
       }
       if (paymentDetails.paymentMethod === 'transfer' && (!paymentDetails.transferDate || !paymentDetails.transferTime)) {
-        alert('กรุณาระบุวันที่และเวลาจากสลิป');
+        showToast('กรุณาระบุวันที่และเวลาจากสลิป', 'error');
         return;
       }
     }
@@ -441,7 +443,7 @@ export default function OrdersPage() {
       });
     } catch (error) {
       console.error('Error updating status:', error);
-      alert(error instanceof Error ? error.message : 'ไม่สามารถอัพเดทสถานะได้');
+      showToast(error instanceof Error ? error.message : 'ไม่สามารถอัพเดทสถานะได้', 'error');
     } finally {
       setUpdatingStatus(false);
     }
@@ -476,7 +478,7 @@ export default function OrdersPage() {
       fetchOrders();
     } catch (error) {
       console.error('Error deleting order:', error);
-      alert(error instanceof Error ? error.message : 'ไม่สามารถลบคำสั่งซื้อได้');
+      showToast(error instanceof Error ? error.message : 'ไม่สามารถลบคำสั่งซื้อได้', 'error');
     }
   };
 
