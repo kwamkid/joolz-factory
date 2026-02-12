@@ -195,7 +195,6 @@ export async function GET(request: NextRequest) {
       .select('id, type, name, is_active, config, sort_order')
       .eq('channel_group', 'bill_online')
       .eq('is_active', true)
-      .order('type')
       .order('sort_order', { ascending: true });
 
     // Sanitize payment channels — strip sensitive data before sending to public page

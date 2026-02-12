@@ -123,19 +123,21 @@ export default function BillOnlinePage() {
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Helper: get Beam channel Thai name
+  // Helper: get Beam channel info
   const getBeamChannelName = (code: string) => {
     return BEAM_CHANNELS.find(ch => ch.code === code)?.name_th || code;
+  };
+  const getBeamChannelLogo = (code: string) => {
+    return BEAM_CHANNELS.find(ch => ch.code === code)?.logo;
   };
 
   useEffect(() => {
     if (orderId) {
       fetchBill();
     }
-    // Handle Beam redirect return
+    // Clean up Beam redirect query param (no longer used for status display)
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('payment') === 'success') {
-      setSubmitSuccess(true);
       window.history.replaceState({}, '', `/bills/${orderId}`);
     }
   }, [orderId]);
@@ -592,17 +594,23 @@ export default function BillOnlinePage() {
               <>
                 {!showPaymentForm ? (
                   <button
-                    onClick={() => setShowPaymentForm(true)}
+                    onClick={() => {
+                      // Set default payment method to first available channel type
+                      if (bill.payment_channels && bill.payment_channels.length > 0) {
+                        setPaymentMethod(bill.payment_channels[0].type);
+                      }
+                      setShowPaymentForm(true);
+                    }}
                     className="w-full bg-[#E9B308] text-[#00231F] py-4 rounded-xl font-bold text-lg hover:bg-[#d4a307] transition-colors shadow-md flex items-center justify-center gap-2"
                   >
                     <Upload className="w-6 h-6" />
-                    แจ้งชำระเงิน
+                    ชำระเงิน
                   </button>
                 ) : (
                   <div className="border-2 border-[#E9B308] rounded-xl p-5 space-y-4">
                     <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
                       <Upload className="w-5 h-5 text-[#E9B308]" />
-                      แจ้งชำระเงิน
+                      ชำระเงิน
                     </h3>
 
                     {/* Payment Method — dynamic from payment_channels */}
@@ -610,48 +618,36 @@ export default function BillOnlinePage() {
                       <label className="block text-base font-medium text-gray-600 mb-2">วิธีชำระ</label>
                       {bill.payment_channels && bill.payment_channels.length > 0 ? (
                         <div className="grid grid-cols-1 gap-2">
-                          {bill.payment_channels.some(ch => ch.type === 'bank_transfer') && (
-                            <button
-                              type="button"
-                              onClick={() => setPaymentMethod('bank_transfer')}
-                              className={`flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-base font-medium transition-colors ${
-                                paymentMethod === 'bank_transfer'
-                                  ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]'
-                                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                              }`}
-                            >
-                              <CreditCard className="w-5 h-5" />
-                              โอนธนาคาร
-                            </button>
-                          )}
-                          {bill.payment_channels.some(ch => ch.type === 'payment_gateway') && (
-                            <button
-                              type="button"
-                              onClick={() => setPaymentMethod('payment_gateway')}
-                              className={`flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-base font-medium transition-colors ${
-                                paymentMethod === 'payment_gateway'
-                                  ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]'
-                                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                              }`}
-                            >
-                              <Globe className="w-5 h-5" />
-                              ชำระออนไลน์
-                            </button>
-                          )}
-                          {bill.payment_channels.some(ch => ch.type === 'cash') && (
-                            <button
-                              type="button"
-                              onClick={() => setPaymentMethod('cash')}
-                              className={`flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-base font-medium transition-colors ${
-                                paymentMethod === 'cash'
-                                  ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]'
-                                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                              }`}
-                            >
-                              <Banknote className="w-5 h-5" />
-                              เงินสด
-                            </button>
-                          )}
+                          {/* Render buttons in sort_order — deduplicate by type */}
+                          {bill.payment_channels
+                            .filter((ch, i, arr) => arr.findIndex(c => c.type === ch.type) === i)
+                            .map(ch => {
+                              const iconMap = {
+                                bank_transfer: <CreditCard className="w-5 h-5" />,
+                                payment_gateway: <Globe className="w-5 h-5" />,
+                                cash: <Banknote className="w-5 h-5" />,
+                              };
+                              const labelMap = {
+                                bank_transfer: 'โอนธนาคาร',
+                                payment_gateway: 'ชำระออนไลน์',
+                                cash: 'เงินสด',
+                              };
+                              return (
+                                <button
+                                  key={ch.type}
+                                  type="button"
+                                  onClick={() => setPaymentMethod(ch.type)}
+                                  className={`flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-base font-medium transition-colors ${
+                                    paymentMethod === ch.type
+                                      ? 'border-[#E9B308] bg-[#E9B308]/10 text-[#00231F]'
+                                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                                  }`}
+                                >
+                                  {iconMap[ch.type]}
+                                  {labelMap[ch.type]}
+                                </button>
+                              );
+                            })}
                         </div>
                       ) : (
                         /* Fallback: original 2 buttons if no channels configured */
@@ -776,7 +772,10 @@ export default function BillOnlinePage() {
                             {bill.payment_channels
                               ?.find(ch => ch.type === 'payment_gateway')
                               ?.available_channels?.map(ac => (
-                                <span key={ac.code} className="px-2 py-1 bg-white rounded text-sm text-gray-700 border border-blue-100">
+                                <span key={ac.code} className="px-2 py-1 bg-white rounded text-sm text-gray-700 border border-blue-100 inline-flex items-center gap-1.5">
+                                  {getBeamChannelLogo(ac.code) && (
+                                    <img src={getBeamChannelLogo(ac.code)} alt="" className="w-5 h-5 object-contain" />
+                                  )}
                                   {getBeamChannelName(ac.code)}
                                 </span>
                               ))}
@@ -861,7 +860,7 @@ export default function BillOnlinePage() {
               </>
             )}
 
-            {/* Status: verifying */}
+            {/* Status: verifying (from bank transfer / cash submission) */}
             {(bill.payment_status === 'verifying' || submitSuccess) && (
               <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-5 text-center">
                 <Clock className="w-10 h-10 text-purple-500 mx-auto mb-2" />

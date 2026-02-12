@@ -43,7 +43,6 @@ export async function GET(request: NextRequest) {
       .from('payment_channels')
       .select('*')
       .eq('channel_group', group)
-      .order('type')
       .order('sort_order', { ascending: true });
 
     if (error) throw error;
@@ -90,19 +89,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Cash channel is auto-created. Use PUT to toggle.' }, { status: 400 });
     }
 
-    // Get next sort_order for bank_transfer
-    let sortOrder = 0;
-    if (type === 'bank_transfer') {
-      const { data: maxData } = await supabaseAdmin
-        .from('payment_channels')
-        .select('sort_order')
-        .eq('channel_group', channel_group)
-        .eq('type', 'bank_transfer')
-        .order('sort_order', { ascending: false })
-        .limit(1)
-        .single();
-      sortOrder = (maxData?.sort_order || 0) + 1;
-    }
+    // Get next sort_order (across all types in this group)
+    const { data: maxData } = await supabaseAdmin
+      .from('payment_channels')
+      .select('sort_order')
+      .eq('channel_group', channel_group)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .single();
+    const sortOrder = (maxData?.sort_order || 0) + 1;
 
     const { data, error } = await supabaseAdmin
       .from('payment_channels')
@@ -134,7 +129,7 @@ export async function PUT(request: NextRequest) {
     if (!isAdmin) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
 
     const body = await request.json();
-    const { id, name, is_active, config } = body;
+    const { id, name, is_active, config, sort_order } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
@@ -147,6 +142,7 @@ export async function PUT(request: NextRequest) {
     if (name !== undefined) updateData.name = name.trim();
     if (is_active !== undefined) updateData.is_active = is_active;
     if (config !== undefined) updateData.config = config;
+    if (sort_order !== undefined) updateData.sort_order = sort_order;
 
     const { data, error } = await supabaseAdmin
       .from('payment_channels')
@@ -161,6 +157,35 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('PUT payment-channels error:', error);
     return NextResponse.json({ error: 'Failed to update payment channel' }, { status: 500 });
+  }
+}
+
+// PATCH - Batch reorder payment channels
+export async function PATCH(request: NextRequest) {
+  try {
+    const { isAuth, isAdmin } = await checkAuth(request);
+    if (!isAuth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!isAdmin) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
+
+    const body = await request.json();
+    const { orders } = body as { orders: { id: string; sort_order: number }[] };
+
+    if (!orders || !Array.isArray(orders)) {
+      return NextResponse.json({ error: 'orders array is required' }, { status: 400 });
+    }
+
+    // Update each channel's sort_order
+    for (const item of orders) {
+      await supabaseAdmin
+        .from('payment_channels')
+        .update({ sort_order: item.sort_order, updated_at: new Date().toISOString() })
+        .eq('id', item.id);
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('PATCH payment-channels error:', error);
+    return NextResponse.json({ error: 'Failed to reorder payment channels' }, { status: 500 });
   }
 }
 

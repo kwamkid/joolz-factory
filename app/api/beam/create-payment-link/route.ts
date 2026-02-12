@@ -150,7 +150,18 @@ export async function POST(request: NextRequest) {
 
     const beamResult = await beamResponse.json();
 
-    // 8. Create payment record
+    // 8. Cancel any existing pending gateway payment records for this order
+    // (customer might have clicked pay before but didn't complete)
+    await supabaseAdmin.from('payment_records').update({
+      status: 'cancelled',
+      gateway_status: 'CANCELLED',
+      updated_at: new Date().toISOString(),
+    })
+      .eq('order_id', order.id)
+      .eq('payment_method', 'payment_gateway')
+      .eq('status', 'pending');
+
+    // Create new payment record
     await supabaseAdmin.from('payment_records').insert({
       order_id: order.id,
       payment_method: 'payment_gateway',
@@ -162,11 +173,9 @@ export async function POST(request: NextRequest) {
       gateway_raw_response: beamResult,
     });
 
-    // 9. Update order payment_status to verifying
-    await supabaseAdmin.from('orders').update({
-      payment_status: 'verifying',
-      updated_at: new Date().toISOString(),
-    }).eq('id', order.id);
+    // 9. Do NOT change payment_status here — keep it 'pending' until
+    // Beam webhook confirms actual payment. This allows the customer
+    // to go back and retry if they didn't complete the payment.
 
     // 10. Return payment URL
     return NextResponse.json({

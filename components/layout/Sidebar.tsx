@@ -118,9 +118,9 @@ export default function Sidebar() {
   const { userProfile, signOut } = useAuth();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Auto-open settings dropdown when on a settings sub-page
+  // Auto-open settings dropdown when on any settings page
   useEffect(() => {
-    if (pathname?.startsWith('/settings/')) {
+    if (pathname?.startsWith('/settings')) {
       setSettingsOpen(true);
     }
   }, [pathname]);
@@ -267,8 +267,8 @@ export default function Sidebar() {
                   onClick={() => setSettingsOpen(!settingsOpen)}
                   className={`flex items-center w-full px-3 py-2 rounded-lg mb-1 transition-colors ${
                     pathname?.startsWith('/settings')
-                      ? 'bg-[#E9B308] text-[#00231F]'
-                      : 'text-gray-300 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+                      ? 'text-[#E9B308]'
+                      : 'text-gray-300 hover:text-[#E9B308]'
                   }`}
                 >
                   <Settings className="w-5 h-5" />
@@ -281,23 +281,23 @@ export default function Sidebar() {
                       href="/settings"
                       className={`flex items-center space-x-3 pl-5 pr-3 py-2 rounded-r-lg mb-0.5 transition-colors ${
                         pathname === '/settings'
-                          ? 'bg-[#E9B308]/20 text-[#E9B308]'
-                          : 'text-gray-400 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+                          ? 'text-[#E9B308]'
+                          : 'text-gray-400 hover:text-[#E9B308]'
                       }`}
                     >
                       <Settings className="w-4 h-4" />
-                      <span className="text-[14px] font-medium">ทั่วไป</span>
+                      <span className="text-[16px] font-medium">ทั่วไป</span>
                     </Link>
                     <Link
                       href="/settings/payment-channels"
                       className={`flex items-center space-x-3 pl-5 pr-3 py-2 rounded-r-lg mb-0.5 transition-colors ${
                         pathname === '/settings/payment-channels'
-                          ? 'bg-[#E9B308]/20 text-[#E9B308]'
-                          : 'text-gray-400 hover:bg-[#E9B308]/10 hover:text-[#E9B308]'
+                          ? 'text-[#E9B308]'
+                          : 'text-gray-400 hover:text-[#E9B308]'
                       }`}
                     >
                       <CreditCard className="w-4 h-4" />
-                      <span className="text-[14px] font-medium">ช่องทางชำระเงิน</span>
+                      <span className="text-[16px] font-medium">ช่องทางชำระเงิน</span>
                     </Link>
                   </div>
                 )}
